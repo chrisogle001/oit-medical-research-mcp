@@ -1,14 +1,6 @@
 import { createMedicalResearchMcpServer } from "@oit-medical-research/mcp";
 import { createMcpHandler } from "agents/mcp/server";
 
-interface Env {
-  MCP_BEARER_TOKEN?: string;
-  CONTACT_EMAIL?: string;
-  NCBI_API_KEY?: string;
-  ALLOWED_HOSTNAMES?: string;
-  ALLOWED_ORIGIN_HOSTNAMES?: string;
-}
-
 export default {
   async fetch(request, env, context): Promise<Response> {
     const url = new URL(request.url);
@@ -57,7 +49,7 @@ export default {
     );
     return handler(request, env, context);
   }
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Partial<Env>>;
 
 async function isAuthorized(request: Request, expectedToken: string): Promise<boolean> {
   const authorization = request.headers.get("Authorization");
@@ -68,6 +60,15 @@ async function isAuthorized(request: Request, expectedToken: string): Promise<bo
     sha256(expectedToken)
   ]);
   if (suppliedHash.length !== expectedHash.length) return false;
+  const workerSubtle = crypto.subtle as SubtleCrypto & {
+    timingSafeEqual?: (left: ArrayBufferView, right: ArrayBufferView) => boolean;
+  };
+  if (typeof workerSubtle.timingSafeEqual === "function") {
+    return workerSubtle.timingSafeEqual(suppliedHash, expectedHash);
+  }
+
+  // Node's Web Crypto implementation does not yet expose timingSafeEqual.
+  // This fixed-length fallback is used by local tests; Workers use the native API above.
   let difference = 0;
   for (let index = 0; index < suppliedHash.length; index += 1) {
     difference |= suppliedHash[index]! ^ expectedHash[index]!;

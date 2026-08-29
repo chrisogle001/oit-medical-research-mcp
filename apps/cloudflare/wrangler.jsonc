@@ -6,12 +6,22 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
+    "head_sampling_rate": 1,
     "logs": {
       "enabled": true,
+      "head_sampling_rate": 1,
       "invocation_logs": true
     }
   },
   "vars": {
     "CONTACT_EMAIL": "research-api@ogleits.com"
+  },
+  "env": {
+    "staging": {
+      "name": "oit-medical-research-mcp-staging",
+      "vars": {
+        "CONTACT_EMAIL": "research-api@ogleits.com"
+      }
+    }
   }
 }

@@ -20,7 +20,31 @@ Create `apps/cloudflare/.dev.vars` (ignored by Git) with:
 MCP_BEARER_TOKEN=replace-with-a-long-random-development-token
 ```
 
+You can copy `apps/cloudflare/.dev.vars.example` as the starting template.
+
 Then run `npm run dev:cloudflare`.
+
+## OIT staging environment
+
+The repository includes an isolated `staging` Worker environment for validating a release before production:
+
+- Base URL: `https://oit-medical-research-mcp-staging.oit-medical-research-mcp.workers.dev`
+- MCP endpoint: `/mcp`
+- Unauthenticated readiness check: `/health`
+- Access policy: bearer authentication required; missing configuration fails closed
+
+```powershell
+npx wrangler secret put MCP_BEARER_TOKEN --env staging --config apps/cloudflare/wrangler.jsonc
+npm run deploy:cloudflare:staging
+```
+
+After deployment, a maintainer can run the live remote protocol check without printing the secret:
+
+```powershell
+$env:MCP_BASE_URL = "https://your-staging-worker.workers.dev"
+$env:MCP_BEARER_TOKEN = "your-staging-token"
+npm run smoke:cloudflare
+```
 
 ## Custom domains
 
