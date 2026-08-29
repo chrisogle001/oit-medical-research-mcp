@@ -1,0 +1,77 @@
+import { describe, expect, it } from "vitest";
+import { ResearchService, type ResearchProvider } from "@oit-medical-research/core";
+
+const pubmed: ResearchProvider = {
+  name: "pubmed",
+  async search() {
+    return [
+      {
+        title: "A useful trial",
+        identifiers: { pmid: "123", doi: "10.1000/trial" },
+        url: "https://pubmed.ncbi.nlm.nih.gov/123/",
+        providers: ["pubmed"]
+      }
+    ];
+  },
+  async fetch(identifier) {
+    if (identifier.type !== "pmid" || identifier.value !== "123") return null;
+    return {
+      title: "A useful trial",
+      abstract: "A structured abstract.",
+      identifiers: { pmid: "123", pmcid: "PMC456", doi: "10.1000/trial" },
+      providers: ["pubmed"]
+    };
+  }
+};
+
+const europePmc: ResearchProvider = {
+  name: "europe-pmc",
+  async search() {
+    return [
+      {
+        title: "A useful trial",
+        identifiers: { pmid: "123", pmcid: "PMC456", doi: "10.1000/trial" },
+        providers: ["europe-pmc"]
+      }
+    ];
+  },
+  async fetch(identifier) {
+    if (identifier.type !== "pmcid" || identifier.value !== "PMC456") return null;
+    return {
+      title: "A useful trial",
+      fullText: "Lawfully available full text.",
+      identifiers: { pmid: "123", pmcid: "PMC456", doi: "10.1000/trial" },
+      isOpenAccess: true,
+      license: "CC BY",
+      providers: ["europe-pmc"]
+    };
+  }
+};
+
+describe("ResearchService", () => {
+  it("deduplicates search results across providers", async () => {
+    const service = new ResearchService({ providers: [pubmed, europePmc] });
+    await expect(service.search("useful trial")).resolves.toEqual({
+      results: [
+        {
+          id: "pmcid:PMC456",
+          title: "A useful trial",
+          url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC456/"
+        }
+      ]
+    });
+  });
+
+  it("follows a discovered PMCID to lawful full text", async () => {
+    const service = new ResearchService({ providers: [pubmed, europePmc] });
+    const result = await service.fetch("pmid:123");
+    expect(result.id).toBe("pmcid:PMC456");
+    expect(result.text).toBe("Lawfully available full text.");
+    expect(result.metadata).toMatchObject({
+      isOpenAccess: true,
+      license: "CC BY",
+      textType: "lawful-full-text",
+      providers: ["europe-pmc", "pubmed"]
+    });
+  });
+});

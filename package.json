@@ -1,0 +1,52 @@
+{
+  "name": "oit-medical-research-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portable medical literature research MCP server for local and Cloudflare deployments.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "author": "Ogle IT Services <research-api@ogleits.com>",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "bin": {
+    "oit-medical-research-mcp": "dist/oit-medical-research-mcp.js"
+  },
+  "files": [
+    "dist/oit-medical-research-mcp.js",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "build": "npm run typecheck && esbuild ./apps/local/src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/oit-medical-research-mcp.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:live": "tsx scripts/smoke-live.ts",
+    "smoke:protocol": "npm run build && tsx scripts/smoke-protocol.ts",
+    "start:local": "tsx apps/local/src/index.ts",
+    "dev:cloudflare": "wrangler dev --config apps/cloudflare/wrangler.jsonc",
+    "deploy:cloudflare": "wrangler deploy --config apps/cloudflare/wrangler.jsonc",
+    "check:cloudflare": "wrangler deploy --dry-run --config apps/cloudflare/wrangler.jsonc",
+    "cf-typegen": "wrangler types --config apps/cloudflare/wrangler.jsonc apps/cloudflare/worker-configuration.d.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.22.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260829.1",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "24.10.0",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.127.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

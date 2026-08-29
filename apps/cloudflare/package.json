@@ -1,0 +1,9 @@
+{
+  "name": "@oit-medical-research/cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@oit-medical-research/mcp": "*"
+  }
+}
