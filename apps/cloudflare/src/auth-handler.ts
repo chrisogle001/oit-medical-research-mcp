@@ -41,6 +41,7 @@ type GitHubTokenResult =
         | "bad_verification_code"
         | "incorrect_client_credentials"
         | "redirect_uri_mismatch"
+        | "rate_limited"
         | "upstream_rejected"
         | "network_error";
       status?: number;
@@ -207,7 +208,11 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
       reason: tokenResult.reason,
       ...(tokenResult.status ? { status: tokenResult.status } : {})
     });
-    return renderError("GitHub sign-in failed", githubOAuthFailureMessage(tokenResult.reason), 502);
+    return renderError(
+      "GitHub sign-in failed",
+      githubOAuthFailureMessage(tokenResult.reason),
+      tokenResult.reason === "rate_limited" ? 503 : 502
+    );
   }
   const user = await fetchGitHubUser(tokenResult.accessToken);
   if (!user) return renderError("GitHub profile unavailable", "The signed-in GitHub profile could not be read.", 502);
@@ -331,7 +336,7 @@ async function exchangeGitHubCode(
     }
     return {
       ok: false,
-      reason: classifyGitHubOAuthFailure(payload),
+      reason: classifyGitHubOAuthFailure(payload, response.status),
       status: response.status
     };
   } catch {
@@ -340,8 +345,10 @@ async function exchangeGitHubCode(
 }
 
 export function classifyGitHubOAuthFailure(
-  payload: unknown
+  payload: unknown,
+  status?: number
 ): Exclude<GitHubTokenResult, { ok: true }>["reason"] {
+  if (status === 429) return "rate_limited";
   if (!isRecord(payload) || typeof payload.error !== "string") return "upstream_rejected";
   if (
     payload.error === "bad_verification_code" ||
@@ -365,6 +372,8 @@ export function githubOAuthFailureMessage(
       return "GitHub rejected the callback address. The OAuth app callback must match this server exactly.";
     case "network_error":
       return "The server could not reach GitHub's OAuth service in time. Please try again.";
+    case "rate_limited":
+      return "GitHub is temporarily limiting sign-in requests. Please wait a few minutes and try again.";
     default:
       return "GitHub rejected the token exchange. The server owner should review the safe OAuth diagnostic log.";
   }

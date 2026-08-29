@@ -70,6 +70,14 @@ npm test
 npm run check:cloudflare
 ```
 
+The deterministic test suite does not call external literature services. To verify every live provider independently, including metadata, identifiers, abstracts, and lawful open-full-text resolution, run:
+
+```powershell
+npm run smoke:providers
+```
+
+This checks targeted searches and a stable cross-provider article through PubMed, Europe PMC, Crossref, and Unpaywall, and exits unsuccessfully if any individual source fails. `CONTACT_EMAIL` and `NCBI_API_KEY` are honored when set. Unpaywall is verified through DOI retrieval because it is a fetch-only enrichment source in this server.
+
 ## Status
 
 The shared foundation, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, and account access-revocation page are implemented. Encrypted per-user provider-key settings, rate limits, and the remaining hosted-service controls are the next product layer.

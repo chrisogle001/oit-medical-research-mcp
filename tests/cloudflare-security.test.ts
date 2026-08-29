@@ -51,9 +51,11 @@ describe("Cloudflare OAuth security helpers", () => {
     expect(classifyGitHubOAuthFailure({ error: "unexpected", error_description: "sensitive" })).toBe(
       "upstream_rejected"
     );
+    expect(classifyGitHubOAuthFailure({ message: "sensitive" }, 429)).toBe("rate_limited");
     expect(githubOAuthFailureMessage("incorrect_client_credentials")).toContain(
       "OAuth app credentials"
     );
+    expect(githubOAuthFailureMessage("rate_limited")).toContain("wait a few minutes");
     expect(githubOAuthFailureMessage("upstream_rejected")).not.toContain("sensitive");
   });
 

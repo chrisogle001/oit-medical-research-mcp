@@ -1,6 +1,8 @@
 import type { FetchLike } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+const MAX_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 250;
 
 export class UpstreamError extends Error {
   constructor(
@@ -44,6 +46,22 @@ async function fetchWithTimeout(
   url: URL,
   timeoutMs: number
 ): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetchOnce(fetcher, url, timeoutMs);
+      if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_ATTEMPTS) throw error;
+    }
+    await delay(RETRY_DELAY_MS * attempt);
+  }
+  throw lastError;
+}
+
+async function fetchOnce(fetcher: FetchLike, url: URL, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -56,4 +74,12 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -99,7 +99,11 @@ try {
     const body = await response.text();
     if (!response.ok) throw new Error(`MCP ${method} failed with HTTP ${response.status}.`);
     return parseMcpBody(body) as {
-      result?: { content?: Array<{ type?: string; text?: string }>; serverInfo?: { name?: string }; tools?: Array<{ name?: string }> };
+      result?: {
+        content?: Array<{ type?: string; text?: string }>;
+        serverInfo?: { name?: string };
+        tools?: Array<{ name?: string }>;
+      };
     };
   };
 
@@ -120,8 +124,30 @@ try {
   });
   const content = searchCall.result?.content?.[0];
   if (content?.type !== "text" || !content.text) throw new Error("Search returned no MCP text content.");
-  const search = JSON.parse(content.text) as { results?: unknown[] };
+  const search = JSON.parse(content.text) as { results?: Array<{ id?: string }> };
   if (!search.results?.length) throw new Error("Authenticated literature search returned no results.");
+  const firstResultId = search.results[0]?.id;
+  if (!firstResultId) throw new Error("Authenticated literature search returned a result without an ID.");
+
+  const fetchCall = await callMcp("tools/call", {
+    name: "fetch",
+    arguments: { id: firstResultId }
+  });
+  const fetchContent = fetchCall.result?.content?.[0];
+  if (fetchContent?.type !== "text" || !fetchContent.text) {
+    throw new Error("Fetch returned no MCP text content.");
+  }
+  const article = JSON.parse(fetchContent.text) as {
+    id?: string;
+    text?: string;
+    metadata?: { providers?: unknown; textType?: unknown };
+  };
+  if (!article.id || !article.text) throw new Error("Authenticated article fetch returned no usable article.");
+  const providers = Array.isArray(article.metadata?.providers)
+    ? article.metadata.providers.filter((provider): provider is string => typeof provider === "string")
+    : [];
+  const textType = typeof article.metadata?.textType === "string" ? article.metadata.textType : undefined;
+  if (!providers.length || !textType) throw new Error("Fetched article provenance was incomplete.");
 
   console.log(
     JSON.stringify(
@@ -130,7 +156,11 @@ try {
         oauth: "connected",
         protocol: "connected",
         tools,
-        searchResultCount: search.results.length
+        searchResultCount: search.results.length,
+        fetchedId: article.id,
+        fetchedProviders: providers,
+        fetchedTextType: textType,
+        fetchedTextCharacters: article.text.length
       },
       null,
       2

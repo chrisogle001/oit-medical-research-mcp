@@ -24,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:live": "tsx scripts/smoke-live.ts",
+    "smoke:providers": "tsx scripts/smoke-providers.ts",
     "smoke:cloudflare": "tsx scripts/smoke-cloudflare.ts",
     "smoke:oauth": "tsx scripts/smoke-oauth.ts",
     "smoke:protocol": "npm run build && tsx scripts/smoke-protocol.ts",
