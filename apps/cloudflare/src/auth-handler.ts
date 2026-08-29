@@ -1,0 +1,517 @@
+import {
+  AuthorizationError,
+  type AuthRequest,
+  type ClientInfo,
+  type OAuthHelpers
+} from "@cloudflare/workers-oauth-provider";
+import {
+  renderAccount,
+  renderConsent,
+  renderError,
+  renderGitHubContinue,
+  renderHome
+} from "./html.js";
+import {
+  clearCsrfCookie,
+  clearOAuthStateCookie,
+  clearSessionCookie,
+  createConsentCookie,
+  createCsrfCookie,
+  createOAuthStateCookie,
+  createSessionCookie,
+  randomToken,
+  readConsentCookie,
+  readSession,
+  type AuthenticatedUser,
+  type PendingOAuthFlow,
+  validateCsrf,
+  validateOAuthStateCookie
+} from "./security.js";
+
+const MAX_FORM_BYTES = 16_384;
+const RESEARCH_SCOPE = "mcp:research";
+
+type OAuthEnv = Env & { OAUTH_PROVIDER: OAuthHelpers };
+
+type GitHubTokenResult =
+  | { ok: true; accessToken: string }
+  | {
+      ok: false;
+      reason:
+        | "bad_verification_code"
+        | "incorrect_client_credentials"
+        | "redirect_uri_mismatch"
+        | "upstream_rejected"
+        | "network_error";
+      status?: number;
+    };
+
+export const authHandler = {
+  async fetch(request, env): Promise<Response> {
+    const url = new URL(request.url);
+    const oauthEnv = env as OAuthEnv;
+
+    if (request.method === "GET" && url.pathname === "/health") {
+      return Response.json({ status: "ok", service: "OIT - Medical Research MCP" });
+    }
+    if (request.method === "GET" && url.pathname === "/") {
+      return renderHome(url.origin);
+    }
+    if (request.method === "GET" && url.pathname === "/authorize") {
+      return beginClientAuthorization(request, oauthEnv);
+    }
+    if (request.method === "POST" && url.pathname === "/authorize") {
+      return continueClientAuthorization(request, oauthEnv);
+    }
+    if (request.method === "GET" && url.pathname === "/login") {
+      return beginAccountLogin(request, oauthEnv);
+    }
+    if (request.method === "GET" && url.pathname === "/callback") {
+      return handleGitHubCallback(request, oauthEnv);
+    }
+    if (request.method === "GET" && url.pathname === "/account") {
+      return showAccount(request, oauthEnv);
+    }
+    if (request.method === "POST" && url.pathname === "/account/grants/revoke") {
+      return revokeGrant(request, oauthEnv);
+    }
+    if (request.method === "POST" && url.pathname === "/logout") {
+      return logout(request, oauthEnv);
+    }
+    return new Response("Not found", { status: 404 });
+  }
+} satisfies ExportedHandler<Env>;
+
+async function beginClientAuthorization(request: Request, env: OAuthEnv): Promise<Response> {
+  const configurationError = validateConfiguration(env);
+  if (configurationError) return configurationError;
+
+  let oauthRequest: AuthRequest;
+  try {
+    oauthRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+  } catch (error) {
+    return authorizationErrorResponse(error);
+  }
+
+  let client: ClientInfo | null;
+  try {
+    client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
+  } catch {
+    return renderError("Client unavailable", "The requesting MCP client could not be validated.");
+  }
+  if (!client) return renderError("Unknown MCP client", "The requesting client is not registered.");
+
+  const consentState = randomToken();
+  const response = renderConsent({ client, oauthRequest, consentState });
+  try {
+    response.headers.append(
+      "Set-Cookie",
+      await createConsentCookie(consentState, oauthRequest, env.COOKIE_ENCRYPTION_KEY)
+    );
+  } catch {
+    return renderError("Authorization request too large", "The MCP client sent too much authorization data.");
+  }
+  return response;
+}
+
+async function continueClientAuthorization(request: Request, env: OAuthEnv): Promise<Response> {
+  const configurationError = validateConfiguration(env);
+  if (configurationError) return configurationError;
+  const form = await readSmallForm(request);
+  if (!form) return renderError("Invalid request", "The submitted form was invalid or too large.", 413);
+  const consentState = new URL(request.url).searchParams.get("consent_state");
+  const decision = form.get("decision");
+  if (!consentState) {
+    return renderError("Invalid authorization form", "Please restart the connection from your MCP client.");
+  }
+
+  const oauthRequest = await readConsentCookie(
+    request,
+    consentState,
+    env.COOKIE_ENCRYPTION_KEY
+  );
+  if (!oauthRequest) {
+    return renderError("Authorization request expired", "Please restart the connection from your MCP client.");
+  }
+
+  if (decision === "deny") {
+    return redirectAuthorizationError(oauthRequest, "access_denied", "You declined access.");
+  }
+  if (decision !== "approve") return renderError("Invalid request", "No authorization choice was provided.");
+
+  return startGitHubFlow(request, env, { kind: "mcp", request: oauthRequest });
+}
+
+async function beginAccountLogin(request: Request, env: OAuthEnv): Promise<Response> {
+  const configurationError = validateConfiguration(env);
+  if (configurationError) return configurationError;
+  return startGitHubFlow(request, env, { kind: "account", returnTo: "/account" });
+}
+
+async function startGitHubFlow(
+  request: Request,
+  env: OAuthEnv,
+  flow: PendingOAuthFlow
+): Promise<Response> {
+  const state = randomToken();
+  const callback = new URL("/callback", request.url).toString();
+  const github = new URL("https://github.com/login/oauth/authorize");
+  github.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+  github.searchParams.set("redirect_uri", callback);
+  github.searchParams.set("state", state);
+
+  const response = renderGitHubContinue(github.toString());
+  response.headers.set("Cache-Control", "no-store");
+  try {
+    response.headers.append(
+      "Set-Cookie",
+      await createOAuthStateCookie(state, flow, env.COOKIE_ENCRYPTION_KEY)
+    );
+  } catch {
+    return renderError("Authorization request too large", "The MCP client sent too much authorization data.");
+  }
+  return response;
+}
+
+async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Response> {
+  const configurationError = validateConfiguration(env);
+  if (configurationError) return configurationError;
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state");
+  const flow = state
+    ? await validateOAuthStateCookie(request, state, env.COOKIE_ENCRYPTION_KEY)
+    : null;
+  if (!state || !flow) {
+    return renderError("Sign-in expired", "The browser session could not be matched to this sign-in.");
+  }
+
+  const upstreamError = url.searchParams.get("error");
+  if (upstreamError) {
+    const response =
+      flow.kind === "mcp"
+        ? redirectAuthorizationError(flow.request, "access_denied", "GitHub sign-in was not completed.")
+        : renderError("Sign-in cancelled", "GitHub sign-in was not completed.");
+    response.headers.append("Set-Cookie", clearOAuthStateCookie());
+    return response;
+  }
+
+  const code = url.searchParams.get("code");
+  if (!code) return renderError("Invalid callback", "GitHub did not provide an authorization code.");
+  const tokenResult = await exchangeGitHubCode(
+    code,
+    new URL("/callback", request.url).toString(),
+    env
+  );
+  if (!tokenResult.ok) {
+    console.warn("GitHub OAuth token exchange failed", {
+      reason: tokenResult.reason,
+      ...(tokenResult.status ? { status: tokenResult.status } : {})
+    });
+    return renderError("GitHub sign-in failed", githubOAuthFailureMessage(tokenResult.reason), 502);
+  }
+  const user = await fetchGitHubUser(tokenResult.accessToken);
+  if (!user) return renderError("GitHub profile unavailable", "The signed-in GitHub profile could not be read.", 502);
+
+  const sessionCookie = await createSessionCookie(user, env.COOKIE_ENCRYPTION_KEY);
+  if (flow.kind === "account") {
+    const headers = new Headers({ Location: flow.returnTo, "Cache-Control": "no-store" });
+    headers.append("Set-Cookie", sessionCookie);
+    return new Response(null, { status: 302, headers });
+  }
+
+  const client = await env.OAUTH_PROVIDER.lookupClient(flow.request.clientId);
+  if (!client) return renderError("Unknown MCP client", "The requesting client is no longer registered.");
+  const grantedScopes = flow.request.scope.filter((scope) => scope === RESEARCH_SCOPE);
+  const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+    request: flow.request,
+    userId: user.userId,
+    metadata: { clientName: client.clientName || "MCP client" },
+    scope: grantedScopes,
+    props: user
+  });
+  const headers = new Headers({ Location: redirectTo, "Cache-Control": "no-store" });
+  headers.append("Set-Cookie", sessionCookie);
+  return new Response(null, { status: 302, headers });
+}
+
+async function showAccount(request: Request, env: OAuthEnv): Promise<Response> {
+  const configurationError = validateConfiguration(env);
+  if (configurationError) return configurationError;
+  const session = await readSession(request, env.COOKIE_ENCRYPTION_KEY);
+  if (!session) {
+    const response = redirectResponse(new URL("/login", request.url).toString());
+    response.headers.append("Set-Cookie", clearSessionCookie());
+    return response;
+  }
+  const grants = await env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 50 });
+  const csrfToken = randomToken();
+  const notice = new URL(request.url).searchParams.get("notice") || undefined;
+  const response = renderAccount({
+    user: session,
+    grants: grants.items,
+    csrfToken,
+    ...(notice ? { notice } : {})
+  });
+  response.headers.append("Set-Cookie", createCsrfCookie(csrfToken));
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+async function revokeGrant(request: Request, env: OAuthEnv): Promise<Response> {
+  const session = await requireSession(request, env);
+  if (session instanceof Response) return session;
+  const form = await readSmallForm(request);
+  if (!form) return renderError("Invalid request", "The submitted form was invalid or too large.", 413);
+  const csrfToken = form.get("csrf_token");
+  const grantId = form.get("grant_id");
+  if (
+    typeof csrfToken !== "string" ||
+    typeof grantId !== "string" ||
+    !(await validateCsrf(request, csrfToken))
+  ) {
+    return renderError("Request expired", "Reload the account page and try again.");
+  }
+  await env.OAUTH_PROVIDER.revokeGrant(grantId, session.userId);
+  const response = redirectResponse(
+    new URL("/account?notice=Client%20access%20revoked.", request.url).toString(),
+    303
+  );
+  response.headers.append("Set-Cookie", clearCsrfCookie());
+  return response;
+}
+
+async function logout(request: Request, env: OAuthEnv): Promise<Response> {
+  const session = await requireSession(request, env);
+  if (session instanceof Response) return session;
+  const form = await readSmallForm(request);
+  if (!form) return renderError("Invalid request", "The submitted form was invalid or too large.", 413);
+  const csrfToken = form.get("csrf_token");
+  if (typeof csrfToken !== "string" || !(await validateCsrf(request, csrfToken))) {
+    return renderError("Request expired", "Reload the account page and try again.");
+  }
+  const response = redirectResponse(new URL("/", request.url).toString(), 303);
+  response.headers.append("Set-Cookie", clearSessionCookie());
+  return response;
+}
+
+async function requireSession(
+  request: Request,
+  env: OAuthEnv
+): Promise<AuthenticatedUser | Response> {
+  const configurationError = validateConfiguration(env);
+  if (configurationError) return configurationError;
+  const session = await readSession(request, env.COOKIE_ENCRYPTION_KEY);
+  return session || redirectResponse(new URL("/login", request.url).toString(), 303);
+}
+
+async function exchangeGitHubCode(
+  code: string,
+  callback: string,
+  env: OAuthEnv
+): Promise<GitHubTokenResult> {
+  try {
+    const response = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "OIT-Medical-Research-MCP"
+      },
+      body: new URLSearchParams({
+        client_id: env.GITHUB_CLIENT_ID,
+        client_secret: env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: callback
+      }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    const payload = await readBoundedJson(response, 65_536);
+    if (response.ok && isRecord(payload) && typeof payload.access_token === "string") {
+      return { ok: true, accessToken: payload.access_token };
+    }
+    return {
+      ok: false,
+      reason: classifyGitHubOAuthFailure(payload),
+      status: response.status
+    };
+  } catch {
+    return { ok: false, reason: "network_error" };
+  }
+}
+
+export function classifyGitHubOAuthFailure(
+  payload: unknown
+): Exclude<GitHubTokenResult, { ok: true }>["reason"] {
+  if (!isRecord(payload) || typeof payload.error !== "string") return "upstream_rejected";
+  if (
+    payload.error === "bad_verification_code" ||
+    payload.error === "incorrect_client_credentials" ||
+    payload.error === "redirect_uri_mismatch"
+  ) {
+    return payload.error;
+  }
+  return "upstream_rejected";
+}
+
+export function githubOAuthFailureMessage(
+  reason: Exclude<GitHubTokenResult, { ok: true }>["reason"]
+): string {
+  switch (reason) {
+    case "bad_verification_code":
+      return "GitHub rejected the temporary sign-in code because it was expired, reused, or no longer valid.";
+    case "incorrect_client_credentials":
+      return "GitHub rejected the server's OAuth app credentials. The server owner must update its GitHub client secret.";
+    case "redirect_uri_mismatch":
+      return "GitHub rejected the callback address. The OAuth app callback must match this server exactly.";
+    case "network_error":
+      return "The server could not reach GitHub's OAuth service in time. Please try again.";
+    default:
+      return "GitHub rejected the token exchange. The server owner should review the safe OAuth diagnostic log.";
+  }
+}
+
+async function fetchGitHubUser(accessToken: string): Promise<AuthenticatedUser | null> {
+  let payload: unknown;
+  try {
+    const response = await fetch("https://api.github.com/user", {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${accessToken}`,
+        "User-Agent": "OIT-Medical-Research-MCP",
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!response.ok) return null;
+    payload = await readBoundedJson(response, 1_000_000);
+  } catch {
+    return null;
+  }
+  if (
+    !isRecord(payload) ||
+    (typeof payload.id !== "number" && typeof payload.id !== "string") ||
+    typeof payload.login !== "string"
+  ) {
+    return null;
+  }
+  const displayName = typeof payload.name === "string" && payload.name.trim() ? payload.name : payload.login;
+  const avatarUrl =
+    typeof payload.avatar_url === "string" && isGitHubAvatar(payload.avatar_url)
+      ? payload.avatar_url
+      : undefined;
+  return {
+    userId: String(payload.id),
+    login: payload.login,
+    displayName,
+    ...(avatarUrl ? { avatarUrl } : {})
+  };
+}
+
+function authorizationErrorResponse(error: unknown): Response {
+  if (!(error instanceof AuthorizationError)) {
+    return renderError("Invalid authorization request", "The MCP client sent an invalid request.");
+  }
+  if (!error.redirectUri) return renderError("Invalid authorization request", error.description);
+  const redirect = new URL(error.redirectUri);
+  redirect.searchParams.set("error", error.code);
+  redirect.searchParams.set("error_description", error.description);
+  if (error.state) redirect.searchParams.set("state", error.state);
+  if (error.issuer) redirect.searchParams.set("iss", error.issuer);
+  return redirectResponse(redirect.toString());
+}
+
+function redirectAuthorizationError(
+  request: AuthRequest,
+  code: string,
+  description: string
+): Response {
+  const redirect = new URL(request.redirectUri);
+  redirect.searchParams.set("error", code);
+  redirect.searchParams.set("error_description", description);
+  redirect.searchParams.set("state", request.state);
+  if (request.issuer) redirect.searchParams.set("iss", request.issuer);
+  return redirectResponse(redirect.toString());
+}
+
+function redirectResponse(location: string, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: { Location: location, "Cache-Control": "no-store" }
+  });
+}
+
+function validateConfiguration(env: OAuthEnv): Response | null {
+  if (!env.OAUTH_KV || !env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+    return renderError("Sign-in not configured", "The server owner has not finished OAuth setup.", 503);
+  }
+  if (!env.COOKIE_ENCRYPTION_KEY || env.COOKIE_ENCRYPTION_KEY.length < 32) {
+    return renderError("Sign-in not configured", "The server session secret is missing or too short.", 503);
+  }
+  return null;
+}
+
+async function readSmallForm(request: Request): Promise<URLSearchParams | null> {
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("application/x-www-form-urlencoded")) return null;
+  const declaredLength = Number(request.headers.get("Content-Length") || "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_FORM_BYTES) return null;
+  const bytes = await readBoundedBody(request.body, MAX_FORM_BYTES);
+  if (!bytes) return null;
+  return new URLSearchParams(new TextDecoder().decode(bytes));
+}
+
+async function readBoundedJson(response: Response, limit: number): Promise<unknown> {
+  const declaredLength = Number(response.headers.get("Content-Length") || "0");
+  if (Number.isFinite(declaredLength) && declaredLength > limit) return null;
+  const bytes = await readBoundedBody(response.body, limit);
+  if (!bytes) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+async function readBoundedBody(
+  body: ReadableStream<Uint8Array> | null,
+  limit: number
+): Promise<Uint8Array | null> {
+  if (!body) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined;
+}
+
+function isGitHubAvatar(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "avatars.githubusercontent.com";
+  } catch {
+    return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

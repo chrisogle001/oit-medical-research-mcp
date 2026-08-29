@@ -3,7 +3,7 @@
   "name": "oit-medical-research-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-29",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
@@ -16,12 +16,24 @@
   "vars": {
     "CONTACT_EMAIL": "research-api@ogleits.com"
   },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV"
+    }
+  ],
   "env": {
     "staging": {
       "name": "oit-medical-research-mcp-staging",
       "vars": {
-        "CONTACT_EMAIL": "research-api@ogleits.com"
-      }
+        "CONTACT_EMAIL": "research-api@ogleits.com",
+        "ALLOWED_HOSTNAMES": "oit-medical-research-mcp-staging.oit-medical-research-mcp.workers.dev",
+        "ALLOWED_ORIGIN_HOSTNAMES": "oit-medical-research-mcp-staging.oit-medical-research-mcp.workers.dev"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV"
+        }
+      ]
     }
   }
 }

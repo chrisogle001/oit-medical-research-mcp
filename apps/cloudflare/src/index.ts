@@ -1,38 +1,12 @@
+import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { createMedicalResearchMcpServer } from "@oit-medical-research/mcp";
 import { createMcpHandler } from "agents/mcp/server";
+import { authHandler } from "./auth-handler.js";
 
-export default {
+const RESEARCH_SCOPE = "mcp:research";
+
+export const mcpApiHandler = {
   async fetch(request, env, context): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({ status: "ok", service: "OIT - Medical Research MCP" });
-    }
-    if (request.method === "GET" && url.pathname === "/") {
-      return Response.json({
-        name: "OIT - Medical Research MCP",
-        mcpEndpoint: "/mcp",
-        authentication: "Bearer token required"
-      });
-    }
-    if (url.pathname !== "/mcp") return new Response("Not found", { status: 404 });
-
-    if (!env.MCP_BEARER_TOKEN) {
-      return Response.json(
-        { error: "Server authentication is not configured." },
-        { status: 503 }
-      );
-    }
-    if (!(await isAuthorized(request, env.MCP_BEARER_TOKEN))) {
-      return Response.json(
-        { error: "Unauthorized" },
-        {
-          status: 401,
-          headers: { "WWW-Authenticate": 'Bearer realm="medical-research-mcp"' }
-        }
-      );
-    }
-
     const allowedHostnames = list(env.ALLOWED_HOSTNAMES);
     const allowedOriginHostnames = list(env.ALLOWED_ORIGIN_HOSTNAMES);
     const handler = createMcpHandler(
@@ -49,37 +23,41 @@ export default {
     );
     return handler(request, env, context);
   }
-} satisfies ExportedHandler<Partial<Env>>;
+} satisfies ExportedHandler<Env>;
 
-async function isAuthorized(request: Request, expectedToken: string): Promise<boolean> {
-  const authorization = request.headers.get("Authorization");
-  if (!authorization?.startsWith("Bearer ")) return false;
-  const suppliedToken = authorization.slice("Bearer ".length);
-  const [suppliedHash, expectedHash] = await Promise.all([
-    sha256(suppliedToken),
-    sha256(expectedToken)
-  ]);
-  if (suppliedHash.length !== expectedHash.length) return false;
-  const workerSubtle = crypto.subtle as SubtleCrypto & {
-    timingSafeEqual?: (left: ArrayBufferView, right: ArrayBufferView) => boolean;
-  };
-  if (typeof workerSubtle.timingSafeEqual === "function") {
-    return workerSubtle.timingSafeEqual(suppliedHash, expectedHash);
+const worker = {
+  async fetch(request, env, context): Promise<Response> {
+    const url = new URL(request.url);
+    const allowedHostnames = list(env.ALLOWED_HOSTNAMES);
+    if (allowedHostnames && !allowedHostnames.includes(url.hostname)) {
+      return Response.json({ error: "Unrecognized host." }, { status: 421 });
+    }
+
+    const origin = url.origin;
+    const provider = new OAuthProvider<Env>({
+      apiRoute: "/mcp",
+      apiHandler: mcpApiHandler,
+      defaultHandler: authHandler,
+      authorizeEndpoint: "/authorize",
+      tokenEndpoint: "/oauth/token",
+      clientRegistrationEndpoint: "/oauth/register",
+      clientRegistrationTTL: 2_592_000,
+      clientIdMetadataDocumentEnabled: true,
+      allowPlainPKCE: false,
+      scopesSupported: [RESEARCH_SCOPE],
+      resourceMetadata: {
+        resource: `${origin}/mcp`,
+        authorization_servers: [origin],
+        scopes_supported: [RESEARCH_SCOPE],
+        bearer_methods_supported: ["header"],
+        resource_name: "OIT Medical Research MCP"
+      }
+    });
+    return provider.fetch(request, env, context);
   }
+} satisfies ExportedHandler<Env>;
 
-  // Node's Web Crypto implementation does not yet expose timingSafeEqual.
-  // This fixed-length fallback is used by local tests; Workers use the native API above.
-  let difference = 0;
-  for (let index = 0; index < suppliedHash.length; index += 1) {
-    difference |= suppliedHash[index]! ^ expectedHash[index]!;
-  }
-  return difference === 0;
-}
-
-async function sha256(value: string): Promise<Uint8Array> {
-  const bytes = new TextEncoder().encode(value);
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-}
+export default worker;
 
 function list(value?: string): string[] | undefined {
   const values = value

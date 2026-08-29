@@ -47,11 +47,12 @@ Anyone with access to this repository can deploy an independent copy into their 
 ```powershell
 npm install
 npx wrangler login
-npx wrangler secret put MCP_BEARER_TOKEN --config apps/cloudflare/wrangler.jsonc
 npm run deploy:cloudflare
 ```
 
-Use a long random bearer token. The Worker refuses MCP requests when the secret is absent. Configure an MCP client to call `https://<your-worker>/mcp` with `Authorization: Bearer <token>`.
+The first deployment creates the OAuth KV binding and reveals the Worker URL. Create a GitHub OAuth App with `https://<your-worker>/callback` as its callback, then store `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and a random `COOKIE_ENCRYPTION_KEY` of at least 32 characters with `wrangler secret put`. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
+
+Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent and GitHub sign-in flow.
 
 For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as comma-separated Worker variables. Browser Origins remain validated by default.
 
@@ -71,4 +72,4 @@ npm run check:cloudflare
 
 ## Status
 
-This is the first validated foundation. Standard bearer authentication supports private self-hosting now. A separate browser-based account/settings service and standards-based OAuth authorization are planned before offering a shared hosted service to multiple users.
+The shared foundation, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, and account access-revocation page are implemented. Encrypted per-user provider-key settings, rate limits, and the remaining hosted-service controls are the next product layer.

@@ -25,6 +25,7 @@
     "test:watch": "vitest",
     "smoke:live": "tsx scripts/smoke-live.ts",
     "smoke:cloudflare": "tsx scripts/smoke-cloudflare.ts",
+    "smoke:oauth": "tsx scripts/smoke-oauth.ts",
     "smoke:protocol": "npm run build && tsx scripts/smoke-protocol.ts",
     "start:local": "tsx apps/local/src/index.ts",
     "dev:cloudflare": "wrangler dev --config apps/cloudflare/wrangler.jsonc",
@@ -37,6 +38,7 @@
     "cf-typegen:check": "tsx scripts/cloudflare-typegen.ts --check"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@modelcontextprotocol/server": "2.0.0",
     "agents": "0.22.0",
     "zod": "4.5.4"

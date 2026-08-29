@@ -1,8 +1,8 @@
-const baseUrl = process.env.MCP_BASE_URL?.replace(/\/$/, "");
-const bearerToken = process.env.MCP_BEARER_TOKEN;
+const baseUrl = (process.argv[2] || process.env.MCP_BASE_URL)?.replace(/\/$/, "");
+const oauthAccessToken = process.env.MCP_OAUTH_ACCESS_TOKEN;
 
-if (!baseUrl || !bearerToken) {
-  throw new Error("MCP_BASE_URL and MCP_BEARER_TOKEN are required for the Cloudflare smoke test.");
+if (!baseUrl) {
+  throw new Error("Pass the Worker base URL or set MCP_BASE_URL for the Cloudflare smoke test.");
 }
 
 let requestId = 10;
@@ -20,6 +20,54 @@ const anonymous = await fetch(`${baseUrl}/mcp`, {
 });
 if (anonymous.status !== 401) {
   throw new Error(`Anonymous MCP request returned HTTP ${anonymous.status}; expected 401.`);
+}
+const challenge = anonymous.headers.get("WWW-Authenticate");
+const resourceMetadataUrl = challenge?.match(/resource_metadata="([^"]+)"/)?.[1];
+if (!resourceMetadataUrl) throw new Error("The anonymous challenge did not advertise OAuth metadata.");
+
+const resourceMetadataResponse = await fetch(resourceMetadataUrl);
+if (!resourceMetadataResponse.ok) {
+  throw new Error(`Protected-resource metadata returned HTTP ${resourceMetadataResponse.status}.`);
+}
+const resourceMetadata = (await resourceMetadataResponse.json()) as {
+  resource?: string;
+  authorization_servers?: string[];
+};
+if (resourceMetadata.resource !== `${baseUrl}/mcp`) {
+  throw new Error("Protected-resource metadata advertised an unexpected MCP resource.");
+}
+const authorizationServer = resourceMetadata.authorization_servers?.[0];
+if (!authorizationServer) throw new Error("No OAuth authorization server was advertised.");
+
+const authorizationMetadataResponse = await fetch(
+  `${authorizationServer}/.well-known/oauth-authorization-server`
+);
+if (!authorizationMetadataResponse.ok) {
+  throw new Error(`Authorization metadata returned HTTP ${authorizationMetadataResponse.status}.`);
+}
+const authorizationMetadata = (await authorizationMetadataResponse.json()) as {
+  authorization_endpoint?: string;
+  token_endpoint?: string;
+};
+if (!authorizationMetadata.authorization_endpoint || !authorizationMetadata.token_endpoint) {
+  throw new Error("OAuth authorization metadata is incomplete.");
+}
+
+if (!oauthAccessToken) {
+  console.log(
+    JSON.stringify(
+      {
+        endpoint: baseUrl,
+        health: "ok",
+        anonymousAccess: "rejected",
+        oauthDiscovery: "ok",
+        authenticatedProtocol: "not run (set MCP_OAUTH_ACCESS_TOKEN)"
+      },
+      null,
+      2
+    )
+  );
+  process.exit(0);
 }
 
 const initialized = await callMcp("initialize", {
@@ -72,7 +120,7 @@ async function callMcp(method: string, params: Record<string, unknown>) {
       method: "POST",
       headers: {
         Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${bearerToken}`,
+        Authorization: `Bearer ${oauthAccessToken}`,
         "Content-Type": "application/json"
       },
       body: payload

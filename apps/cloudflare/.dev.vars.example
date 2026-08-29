@@ -1,6 +1,8 @@
 # Copy this file to .dev.vars for local Worker development.
 # Never commit real secrets.
-MCP_BEARER_TOKEN=replace-with-a-long-random-development-token
+GITHUB_CLIENT_ID=replace-with-your-github-oauth-client-id
+GITHUB_CLIENT_SECRET=replace-with-your-github-oauth-client-secret
+COOKIE_ENCRYPTION_KEY=replace-with-at-least-32-random-characters
 NCBI_API_KEY=
 ALLOWED_HOSTNAMES=
 ALLOWED_ORIGIN_HOSTNAMES=
