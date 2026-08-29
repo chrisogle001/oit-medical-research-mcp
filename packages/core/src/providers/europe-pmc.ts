@@ -55,7 +55,11 @@ export class EuropePmcProvider implements ResearchProvider {
       const fullTextUrl = new URL(
         `https://www.ebi.ac.uk/europepmc/webservices/rest/${encodeURIComponent(pmcid)}/fullTextXML`
       );
-      const xml = await fetchText(this.context.fetch, this.name, fullTextUrl);
+      fullTextUrl.searchParams.set("email", this.context.contactEmail);
+      const xml = await fetchText(this.context.fetch, this.name, fullTextUrl, {
+        timeoutMs: 10_000,
+        maxAttempts: 1
+      });
       const body = tagBlock(xml, "body");
       if (body) {
         record.fullText = xmlToText(body);
@@ -79,7 +83,10 @@ export class EuropePmcProvider implements ResearchProvider {
     url.searchParams.set("pageSize", String(pageSize));
     url.searchParams.set("resultType", resultType);
     url.searchParams.set("email", this.context.contactEmail);
-    return fetchJson<EuropePmcPayload>(this.context.fetch, this.name, url);
+    return fetchJson<EuropePmcPayload>(this.context.fetch, this.name, url, {
+      timeoutMs: 10_000,
+      maxAttempts: 1
+    });
   }
 
   private identifierQuery(identifier: CanonicalIdentifier): string | null {

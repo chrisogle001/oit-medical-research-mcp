@@ -1,8 +1,13 @@
 import type { FetchLike } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
-const MAX_ATTEMPTS = 2;
+const DEFAULT_MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 250;
+
+interface FetchOptions {
+  timeoutMs?: number;
+  maxAttempts?: number;
+}
 
 export class UpstreamError extends Error {
   constructor(
@@ -19,9 +24,9 @@ export async function fetchJson<T>(
   fetcher: FetchLike,
   provider: string,
   url: URL,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  options: FetchOptions = {}
 ): Promise<T> {
-  const response = await fetchWithTimeout(fetcher, url, timeoutMs);
+  const response = await fetchWithTimeout(fetcher, url, options);
   if (!response.ok) {
     throw new UpstreamError(provider, `${provider} returned HTTP ${response.status}.`, response.status);
   }
@@ -32,9 +37,9 @@ export async function fetchText(
   fetcher: FetchLike,
   provider: string,
   url: URL,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  options: FetchOptions = {}
 ): Promise<string> {
-  const response = await fetchWithTimeout(fetcher, url, timeoutMs);
+  const response = await fetchWithTimeout(fetcher, url, options);
   if (!response.ok) {
     throw new UpstreamError(provider, `${provider} returned HTTP ${response.status}.`, response.status);
   }
@@ -44,17 +49,19 @@ export async function fetchText(
 async function fetchWithTimeout(
   fetcher: FetchLike,
   url: URL,
-  timeoutMs: number
+  options: FetchOptions
 ): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await fetchOnce(fetcher, url, timeoutMs);
-      if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) return response;
+      if (!isRetryableStatus(response.status) || attempt === maxAttempts) return response;
       await response.body?.cancel();
     } catch (error) {
       lastError = error;
-      if (attempt === MAX_ATTEMPTS) throw error;
+      if (attempt === maxAttempts) throw error;
     }
     await delay(RETRY_DELAY_MS * attempt);
   }

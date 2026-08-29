@@ -47,6 +47,18 @@ await check("pubmed.fetch", async () => {
   return recordSummary(record);
 });
 
+await pause(500);
+
+await check("pubmed.fetch-pmc", async () => {
+  const record = await pubmed.fetch({ type: "pmcid", value: fixture.pmcid });
+  assert(record, "The fixture PMCID could not be fetched through PubMed Central.");
+  assert(record.identifiers.pmcid === fixture.pmcid, "The fetched PMCID did not match.");
+  assert((record.fullText?.length ?? 0) > 1_000, "PubMed Central returned no usable full text.");
+  assert(record.isOpenAccess === true, "The PubMed Central fixture was not marked open access.");
+  assert(record.fullTextUrl, "The PubMed Central full-text location was missing.");
+  return { ...recordSummary(record), capability: "europe-pmc-fallback" };
+});
+
 await check("europe-pmc.search", async () => {
   const records = await europePmc.search(`EXT_ID:${fixture.pmid} AND SRC:MED`, 3);
   const match = findByPmid(records);
