@@ -81,6 +81,27 @@ await check("europe-pmc.fetch", async () => {
   return recordSummary(record);
 });
 
+await check("europe-pmc.citations", async () => {
+  const result = await europePmc.citations(
+    { type: "pmid", value: fixture.pmid },
+    "references",
+    3
+  );
+  assert(result, "The fixture citation network could not be resolved.");
+  assert(result.total >= 3, "Europe PMC returned an implausible reference count.");
+  assert(result.records.length === 3, "Europe PMC did not return the requested reference records.");
+  assert(
+    result.records.every((record) => Boolean(record.identifiers.pmid || record.identifiers.epmcId)),
+    "A reference record did not include a stable identifier."
+  );
+  return {
+    direction: "references",
+    total: result.total,
+    returned: result.records.length,
+    firstReferencePmid: result.records[0]?.identifiers.pmid
+  };
+});
+
 await check("crossref.search", async () => {
   const records = await crossref.search(fixture.title, 5);
   assert(records.length > 0, "The title search returned no records.");

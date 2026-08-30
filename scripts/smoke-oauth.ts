@@ -117,7 +117,9 @@ try {
   }
   const catalog = await callMcp("tools/list", {});
   const tools = (catalog.result?.tools || []).flatMap((tool) => (tool.name ? [tool.name] : [])).sort();
-  if (tools.join(",") !== "fetch,search") throw new Error(`Unexpected tool catalog: ${tools.join(", ")}`);
+  if (tools.join(",") !== "citations,fetch,search") {
+    throw new Error(`Unexpected tool catalog: ${tools.join(", ")}`);
+  }
   const searchCall = await callMcp("tools/call", {
     name: "search",
     arguments: {
@@ -173,6 +175,28 @@ try {
   const textType = typeof article.metadata?.textType === "string" ? article.metadata.textType : undefined;
   if (!providers.length || !textType) throw new Error("Fetched article provenance was incomplete.");
 
+  const citationsCall = await callMcp("tools/call", {
+    name: "citations",
+    arguments: { id: "pmid:32678530", direction: "references", limit: 3 }
+  });
+  const citationsContent = citationsCall.result?.content?.[0];
+  if (citationsContent?.type !== "text" || !citationsContent.text) {
+    throw new Error("Citations returned no MCP text content.");
+  }
+  const citations = JSON.parse(citationsContent.text) as {
+    direction?: string;
+    total?: number;
+    results?: Array<{ id?: string; title?: string }>;
+  };
+  if (
+    citations.direction !== "references" ||
+    (citations.total ?? 0) < 3 ||
+    citations.results?.length !== 3 ||
+    !citations.results.every((result) => result.id && result.title)
+  ) {
+    throw new Error("Authenticated citation lookup returned an incomplete reference network.");
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -185,7 +209,10 @@ try {
         fetchedId: article.id,
         fetchedProviders: providers,
         fetchedTextType: textType,
-        fetchedTextCharacters: article.text.length
+        fetchedTextCharacters: article.text.length,
+        citationDirection: citations.direction,
+        citationTotal: citations.total,
+        citationResultCount: citations.results.length
       },
       null,
       2

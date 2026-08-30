@@ -21,7 +21,7 @@ try {
   });
   const tools = await client.listTools();
   const names = tools.tools.map((tool) => tool.name).sort();
-  if (names.join(",") !== "fetch,search") {
+  if (names.join(",") !== "citations,fetch,search") {
     throw new Error(`Unexpected tool catalog: ${names.join(", ")}`);
   }
   const searchTool = tools.tools.find((tool) => tool.name === "search");
@@ -35,9 +35,25 @@ try {
   if (fromYearSchema?.minimum !== 1800 || fromYearSchema.maximum !== 2100) {
     throw new Error("The search tool advertised an unstable publication-year range.");
   }
+  const citationsTool = tools.tools.find((tool) => tool.name === "citations");
+  const citationProperties = (
+    citationsTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  if (Object.keys(citationProperties ?? {}).sort().join(",") !== "direction,id,limit") {
+    throw new Error("The citations tool did not advertise the expected inputs.");
+  }
+  const directionSchema = citationProperties?.direction as { enum?: unknown[] } | undefined;
+  if (directionSchema?.enum?.join(",") !== "references,citedBy") {
+    throw new Error("The citations tool did not advertise both citation directions.");
+  }
   console.log(
     JSON.stringify(
-      { protocol: "connected", tools: names, searchInputs: expectedSearchInputs },
+      {
+        protocol: "connected",
+        tools: names,
+        searchInputs: expectedSearchInputs,
+        citationDirections: directionSchema.enum
+      },
       null,
       2
     )

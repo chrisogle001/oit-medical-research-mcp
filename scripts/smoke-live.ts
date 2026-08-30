@@ -22,6 +22,10 @@ if (
 }
 
 const article = await service.fetch(search.results[0]!.id);
+const citations = await service.citations("pmid:32678530", "references", 3);
+if (citations.total < 3 || citations.results.length !== 3) {
+  throw new Error("Live citation lookup returned an incomplete reference network.");
+}
 console.log(
   JSON.stringify(
     {
@@ -35,7 +39,10 @@ console.log(
       fetchedTitle: article.title,
       textCharacters: article.text.length,
       providers: article.metadata.providers,
-      textType: article.metadata.textType
+      textType: article.metadata.textType,
+      citationDirection: citations.direction,
+      citationTotal: citations.total,
+      citationResults: citations.results.map((result) => result.id)
     },
     null,
     2

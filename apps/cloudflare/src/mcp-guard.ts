@@ -1,9 +1,10 @@
 const MAX_MCP_REQUEST_BYTES = 65_536;
+type ResearchToolName = "search" | "fetch" | "citations" | "other";
 
 export type McpRequestClassification =
   | { kind: "other" }
   | { kind: "too_large" }
-  | { kind: "tool_call"; toolName: "search" | "fetch" | "other" };
+  | { kind: "tool_call"; toolName: ResearchToolName };
 
 export async function classifyMcpRequest(request: Request): Promise<McpRequestClassification> {
   if (request.method !== "POST") return { kind: "other" };
@@ -33,7 +34,7 @@ export async function classifyMcpRequest(request: Request): Promise<McpRequestCl
   const name = isRecord(params) && typeof params.name === "string" ? params.name : "other";
   return {
     kind: "tool_call",
-    toolName: name === "search" || name === "fetch" ? name : "other"
+    toolName: name === "search" || name === "fetch" || name === "citations" ? name : "other"
   };
 }
 
@@ -61,7 +62,7 @@ export function writeUsageEvent(
   analytics: AnalyticsEngineDataset | undefined,
   event: {
     account: string;
-    toolName: "search" | "fetch" | "other";
+    toolName: ResearchToolName;
     outcome: "completed" | "rejected" | "rate_limited";
     durationMs: number;
     status: number;

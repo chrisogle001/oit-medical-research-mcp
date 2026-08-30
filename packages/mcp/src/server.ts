@@ -48,11 +48,29 @@ const FetchInput = z.object({
     .describe("A search result ID, PMID, PMCID, DOI, or supported article URL.")
 });
 
+const CitationsInput = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(2_048)
+    .describe("A search result ID, PMID, PMCID, DOI, or supported article URL."),
+  direction: z
+    .enum(["references", "citedBy"])
+    .describe('Use "references" for papers cited by the article or "citedBy" for papers that cite it.'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Maximum number of normalized citation records to return. Defaults to the server limit.")
+});
+
 export function createMedicalResearchMcpServer(options: ResearchServiceOptions = {}): McpServer {
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.2.0"
+    version: "0.3.0"
   });
 
   server.registerTool(
@@ -78,6 +96,23 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
           ...(fullTextOnly !== undefined ? { fullTextOnly } : {})
         })
       )
+  );
+
+  server.registerTool(
+    "citations",
+    {
+      title: "Explore an article's citation network",
+      description:
+        "Retrieve papers referenced by an article or papers that cite it through Europe PMC's open citation network. Returns normalized, stable article IDs for follow-up fetch or citation calls.",
+      inputSchema: CitationsInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async ({ id, direction, limit }) => toolResult(() => service.citations(id, direction, limit))
   );
 
   server.registerTool(

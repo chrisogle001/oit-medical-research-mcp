@@ -5,6 +5,8 @@ import { EuropePmcProvider } from "./providers/europe-pmc.js";
 import { PubMedProvider } from "./providers/pubmed.js";
 import { UnpaywallProvider } from "./providers/unpaywall.js";
 import type {
+  CitationDirection,
+  CitationResponse,
   FetchResponse,
   ProviderContext,
   ResearchProvider,
@@ -74,20 +76,50 @@ export class ResearchService {
     )
       .filter(hasStableIdentifier)
       .slice(0, resultLimit)
-      .map((record) => ({
-        id: canonicalId(record),
-        title: record.title,
-        url: canonicalUrl(record),
-        identifiers: record.identifiers,
-        providers: record.providers,
-        ...(record.authors?.length ? { authors: record.authors.slice(0, 12) } : {}),
-        ...(record.journal ? { journal: record.journal } : {}),
-        ...(record.publicationDate ? { publicationDate: record.publicationDate } : {}),
-        ...(record.isOpenAccess !== undefined ? { isOpenAccess: record.isOpenAccess } : {}),
-        fullTextAvailable: hasRepositoryFullText(record),
-        ...(record.citationCount !== undefined ? { citationCount: record.citationCount } : {})
-      }));
+      .map(toSearchResult);
     return { results };
+  }
+
+  async citations(
+    id: string,
+    direction: CitationDirection,
+    requestedLimit?: number
+  ): Promise<CitationResponse> {
+    if (id.length > 2_048) throw new Error("The article identifier is too long.");
+    if (direction !== "references" && direction !== "citedBy") {
+      throw new Error('Citation direction must be either "references" or "citedBy".');
+    }
+    const identifier = parseIdentifier(id);
+    const resultLimit = Math.min(this.maxResults, positiveInteger(requestedLimit, this.maxResults));
+    const providers = this.providers.filter((provider) => typeof provider.citations === "function");
+    if (providers.length === 0) {
+      throw new Error("Citation lookup is not supported by the configured literature sources.");
+    }
+
+    const settled = await settleWithConcurrency(
+      providers,
+      this.maxProviderConcurrency,
+      (provider) => provider.citations!(identifier, direction, resultLimit)
+    );
+    const responses = settled.flatMap((result) =>
+      result.status === "fulfilled" && result.value ? [result.value] : []
+    );
+    if (responses.length === 0 && settled.every((result) => result.status === "rejected")) {
+      throw new Error("The citation network is temporarily unavailable.");
+    }
+    if (responses.length === 0) throw new Error(`No article was found for ${id}.`);
+
+    const article = mergeRecords(responses.map((response) => response.article));
+    const results = deduplicateRecords(responses.flatMap((response) => response.records))
+      .filter(hasStableIdentifier)
+      .slice(0, resultLimit)
+      .map(toSearchResult);
+    return {
+      article: toSearchResult(article),
+      direction,
+      total: Math.max(...responses.map((response) => response.total), results.length),
+      results
+    };
   }
 
   async fetch(id: string): Promise<FetchResponse> {
@@ -223,6 +255,22 @@ function journalsMatch(left: string, right: string): boolean {
 
 function hasRepositoryFullText(record: ResearchRecord): boolean {
   return Boolean(record.fullText || record.fullTextUrl || record.identifiers.pmcid);
+}
+
+function toSearchResult(record: ResearchRecord) {
+  return {
+    id: canonicalId(record),
+    title: record.title,
+    url: canonicalUrl(record),
+    identifiers: record.identifiers,
+    providers: record.providers,
+    ...(record.authors?.length ? { authors: record.authors.slice(0, 12) } : {}),
+    ...(record.journal ? { journal: record.journal } : {}),
+    ...(record.publicationDate ? { publicationDate: record.publicationDate } : {}),
+    ...(record.isOpenAccess !== undefined ? { isOpenAccess: record.isOpenAccess } : {}),
+    fullTextAvailable: hasRepositoryFullText(record),
+    ...(record.citationCount !== undefined ? { citationCount: record.citationCount } : {})
+  };
 }
 
 const JOURNAL_ALIASES = new Map([

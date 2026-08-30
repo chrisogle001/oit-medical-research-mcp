@@ -83,7 +83,7 @@ const catalog = await callMcp("tools/list", {});
 const tools = ((catalog.result?.tools ?? []) as Array<{ name?: string }>)
   .flatMap((tool) => (tool.name ? [tool.name] : []))
   .sort();
-if (tools.join(",") !== "fetch,search") {
+if (tools.join(",") !== "citations,fetch,search") {
   throw new Error(`Unexpected remote tool catalog: ${tools.join(", ")}`);
 }
 
@@ -121,6 +121,30 @@ if (!search.results.every(isStructuredFilterMatch)) {
   throw new Error("Remote search did not honor its structured filters or metadata contract.");
 }
 
+const citationsCall = await callMcp("tools/call", {
+  name: "citations",
+  arguments: { id: "pmid:32678530", direction: "references", limit: 3 }
+});
+const citationsContent = (
+  citationsCall.result?.content as Array<{ type?: string; text?: string }> | undefined
+)?.[0];
+if (citationsContent?.type !== "text" || !citationsContent.text) {
+  throw new Error("Remote citation lookup did not return MCP text content.");
+}
+const citations = JSON.parse(citationsContent.text) as {
+  direction?: string;
+  total?: number;
+  results?: Array<{ id?: string }>;
+};
+if (
+  citations.direction !== "references" ||
+  (citations.total ?? 0) < 3 ||
+  citations.results?.length !== 3 ||
+  !citations.results.every((result) => result.id)
+) {
+  throw new Error("Remote citation lookup returned an incomplete reference network.");
+}
+
 console.log(
   JSON.stringify(
     {
@@ -130,7 +154,10 @@ console.log(
       protocol: "connected",
       tools,
       searchResultCount: search.results.length,
-      searchFilters: { fromYear: 2020, journals: ["Trials"], fullTextOnly: true }
+      searchFilters: { fromYear: 2020, journals: ["Trials"], fullTextOnly: true },
+      citationDirection: citations.direction,
+      citationTotal: citations.total,
+      citationResultCount: citations.results.length
     },
     null,
     2

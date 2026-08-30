@@ -54,6 +54,21 @@ export interface SearchResponse {
   results: SearchResult[];
 }
 
+export type CitationDirection = "references" | "citedBy";
+
+export interface CitationProviderResponse {
+  article: ResearchRecord;
+  total: number;
+  records: ResearchRecord[];
+}
+
+export interface CitationResponse {
+  article: SearchResult;
+  direction: CitationDirection;
+  total: number;
+  results: SearchResult[];
+}
+
 export interface FetchResponse {
   id: string;
   title: string;
@@ -79,6 +94,11 @@ export interface ResearchProvider {
   readonly name: ProviderName;
   search(query: string, limit: number, filters?: SearchFilters): Promise<ResearchRecord[]>;
   fetch(identifier: CanonicalIdentifier): Promise<ResearchRecord | null>;
+  citations?(
+    identifier: CanonicalIdentifier,
+    direction: CitationDirection,
+    limit: number
+  ): Promise<CitationProviderResponse | null>;
 }
 
 export interface ResearchServiceOptions {

@@ -5,6 +5,9 @@ export { decodeXml, firstTag, normalizeWhitespace, xmlToText } from "./xml.js";
 export type {
   ArticleIdentifiers,
   CanonicalIdentifier,
+  CitationDirection,
+  CitationProviderResponse,
+  CitationResponse,
   FetchLike,
   FetchResponse,
   ProviderContext,

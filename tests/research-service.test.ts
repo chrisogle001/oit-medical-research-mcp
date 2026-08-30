@@ -157,6 +157,65 @@ describe("ResearchService", () => {
     expect(result.results).toHaveLength(3);
   });
 
+  it("returns a normalized citation network with stable follow-up IDs", async () => {
+    const provider: ResearchProvider = {
+      name: "europe-pmc",
+      async search() {
+        return [];
+      },
+      async fetch() {
+        return null;
+      },
+      async citations(identifier, direction, limit) {
+        expect(identifier).toEqual({ type: "pmid", value: "32678530" });
+        expect(direction).toBe("references");
+        expect(limit).toBe(2);
+        return {
+          article: {
+            title: "Dexamethasone in Hospitalized Patients with Covid-19",
+            identifiers: { pmid: "32678530", pmcid: "PMC7383595" },
+            providers: ["europe-pmc"]
+          },
+          total: 36,
+          records: [
+            {
+              title: "A Novel Coronavirus from Patients with Pneumonia in China, 2019.",
+              journal: "N Engl J Med",
+              publicationDate: "2020",
+              identifiers: { pmid: "31978945" },
+              providers: ["europe-pmc"]
+            },
+            {
+              title: "On the use of corticosteroids for 2019-nCoV pneumonia.",
+              identifiers: { pmid: "32122468" },
+              providers: ["europe-pmc"]
+            }
+          ]
+        };
+      }
+    };
+    const service = new ResearchService({ providers: [provider], maxResults: 5 });
+
+    const result = await service.citations("pmid:32678530", "references", 2);
+
+    expect(result).toMatchObject({
+      article: {
+        id: "pmcid:PMC7383595",
+        fullTextAvailable: true
+      },
+      direction: "references",
+      total: 36
+    });
+    expect(result.results.map(({ id }) => id)).toEqual(["pmid:31978945", "pmid:32122468"]);
+  });
+
+  it("reports when configured providers do not support citation lookup", async () => {
+    const service = new ResearchService({ providers: [pubmed] });
+    await expect(service.citations("pmid:123", "citedBy")).rejects.toThrow(
+      "Citation lookup is not supported"
+    );
+  });
+
   it("ranks title matches ahead of broad provider results", async () => {
     const provider: ResearchProvider = {
       name: "pubmed",

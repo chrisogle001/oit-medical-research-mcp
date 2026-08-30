@@ -3,6 +3,8 @@ import { normalizeDoi } from "../identifiers.js";
 import { firstTag, tagBlock, tagBlocks, xmlToText } from "../xml.js";
 import type {
   CanonicalIdentifier,
+  CitationDirection,
+  CitationProviderResponse,
   ProviderContext,
   ResearchProvider,
   ResearchRecord,
@@ -19,8 +21,9 @@ interface EuropePmcResult {
   authorString?: string;
   authorList?: { author?: Array<{ fullName?: string }> };
   journalTitle?: string;
+  journalAbbreviation?: string;
   firstPublicationDate?: string;
-  pubYear?: string;
+  pubYear?: string | number;
   abstractText?: string;
   citedByCount?: number;
   isOpenAccess?: string | boolean;
@@ -29,6 +32,12 @@ interface EuropePmcResult {
 
 interface EuropePmcPayload {
   resultList?: { result?: EuropePmcResult[] };
+}
+
+interface EuropePmcCitationPayload {
+  hitCount?: number;
+  referenceList?: { reference?: EuropePmcResult[] };
+  citationList?: { citation?: EuropePmcResult[] };
 }
 
 export class EuropePmcProvider implements ResearchProvider {
@@ -77,6 +86,41 @@ export class EuropePmcProvider implements ResearchProvider {
     return record;
   }
 
+  async citations(
+    identifier: CanonicalIdentifier,
+    direction: CitationDirection,
+    limit: number
+  ): Promise<CitationProviderResponse | null> {
+    const query = this.identifierQuery(identifier);
+    if (!query) return null;
+    const resolved = (await this.searchApi(query, 1, "core")).resultList?.result?.[0];
+    if (!resolved?.source || !resolved.id) return null;
+
+    const endpoint = direction === "references" ? "references" : "citations";
+    const url = new URL(
+      `https://www.ebi.ac.uk/europepmc/webservices/rest/${encodeURIComponent(
+        resolved.source.toUpperCase()
+      )}/${encodeURIComponent(resolved.id)}/${endpoint}`
+    );
+    url.searchParams.set("format", "json");
+    url.searchParams.set("pageSize", String(limit));
+    url.searchParams.set("email", this.context.contactEmail);
+    const payload = await fetchJson<EuropePmcCitationPayload>(this.context.fetch, this.name, url, {
+      timeoutMs: 10_000,
+      maxAttempts: 1
+    });
+    const results =
+      direction === "references"
+        ? payload.referenceList?.reference ?? []
+        : payload.citationList?.citation ?? [];
+
+    return {
+      article: this.toRecord(resolved),
+      total: payload.hitCount ?? results.length,
+      records: results.map((result) => this.toRecord(result))
+    };
+  }
+
   private async searchApi(query: string, pageSize: number, resultType: "lite" | "core"): Promise<EuropePmcPayload> {
     const url = new URL("https://www.ebi.ac.uk/europepmc/webservices/rest/search");
     url.searchParams.set("query", query);
@@ -119,9 +163,11 @@ export class EuropePmcProvider implements ResearchProvider {
       title: xmlToText(result.title ?? "Untitled Europe PMC article"),
       ...(authors?.length ? { authors } : {}),
       ...(result.abstractText ? { abstract: xmlToText(result.abstractText) } : {}),
-      ...(result.journalTitle ? { journal: result.journalTitle } : {}),
+      ...(result.journalTitle || result.journalAbbreviation
+        ? { journal: result.journalTitle ?? result.journalAbbreviation }
+        : {}),
       ...(result.firstPublicationDate || result.pubYear
-        ? { publicationDate: result.firstPublicationDate ?? result.pubYear }
+        ? { publicationDate: String(result.firstPublicationDate ?? result.pubYear) }
         : {}),
       identifiers: {
         ...(pmid ? { pmid } : {}),

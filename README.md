@@ -9,10 +9,11 @@ A portable, read-only MCP server for searching medical literature and retrieving
 - Crossref
 - Unpaywall for lawful open-access resolution
 
-The public MCP interface intentionally starts with two interoperable tools:
+The public MCP interface provides three interoperable, read-only tools:
 
 - `search({ query, limit?, fromYear?, toYear?, journals?, fullTextOnly? })` returns up to the requested number of deduplicated results (subject to the server cap). Each result includes its stable ID, title, URL, identifiers, providers, repository-full-text availability, and available journal, date, author, open-access, and citation metadata.
 - `fetch({ id })` returns normalized text, metadata, identifiers, provenance, license, and access links.
+- `citations({ id, direction, limit? })` explores Europe PMC's open citation network. Use `direction: "references"` for papers cited by the article or `direction: "citedBy"` for papers that cite it. Results use the same stable, fetchable IDs as search.
 
 Search filters are optional and work the same way locally and on Cloudflare. `journals` accepts up to five journal titles or common abbreviations. `fullTextOnly: true` restricts results to articles whose full text can be retrieved lawfully from PMC or Europe PMC; it does not bypass publisher access controls.
 
@@ -82,8 +83,8 @@ npm run smoke:providers
 
 This checks targeted searches and a stable cross-provider article through PubMed, Europe PMC, Crossref, and Unpaywall, and exits unsuccessfully if any individual source fails. `CONTACT_EMAIL` and `NCBI_API_KEY` are honored when set. Unpaywall is verified through DOI retrieval because it is a fetch-only enrichment source in this server.
 
-Run `npm run smoke:live` to verify the shared engine against live sources with journal, publication-year, and repository-full-text filters before fetching the first matching article.
+Run `npm run smoke:live` to verify the shared engine against live sources with journal, publication-year, and repository-full-text filters, article retrieval, and a stable Europe PMC citation-network fixture.
 
 ## Status
 
-The shared foundation, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.
+The shared foundation, structured literature search, article retrieval, open citation-network exploration, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.

@@ -44,4 +44,73 @@ describe("EuropePmcProvider", () => {
     expect(record?.fullText).toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    ["references", "referenceList", "reference"],
+    ["citedBy", "citationList", "citation"]
+  ] as const)("retrieves and normalizes %s citation records", async (direction, listName, itemName) => {
+    const fetcher = vi.fn<FetchLike>(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      if (url.pathname.endsWith("/search")) {
+        expect(url.searchParams.get("resultType")).toBe("core");
+        return Response.json({
+          resultList: {
+            result: [
+              {
+                id: "32678530",
+                source: "MED",
+                pmid: "32678530",
+                title: "Dexamethasone in Hospitalized Patients with Covid-19"
+              }
+            ]
+          }
+        });
+      }
+
+      expect(url.pathname).toBe(`/europepmc/webservices/rest/MED/32678530/${
+        direction === "references" ? "references" : "citations"
+      }`);
+      expect(url.searchParams.get("format")).toBe("json");
+      expect(url.searchParams.get("pageSize")).toBe("2");
+      expect(url.searchParams.get("email")).toBe("research-api@example.test");
+      return Response.json({
+        hitCount: 7,
+        [listName]: {
+          [itemName]: [
+            {
+              id: "31978945",
+              source: "MED",
+              title: "A Novel Coronavirus from Patients with Pneumonia in China, 2019.",
+              authorString: "Zhu N, Zhang D.",
+              journalAbbreviation: "N Engl J Med",
+              pubYear: 2020,
+              citedByCount: 15
+            }
+          ]
+        }
+      });
+    });
+    const provider = new EuropePmcProvider({
+      fetch: fetcher,
+      contactEmail: "research-api@example.test"
+    });
+
+    const result = await provider.citations({ type: "pmid", value: "32678530" }, direction, 2);
+
+    expect(result).toMatchObject({
+      total: 7,
+      article: { identifiers: { pmid: "32678530" } },
+      records: [
+        {
+          title: "A Novel Coronavirus from Patients with Pneumonia in China, 2019.",
+          journal: "N Engl J Med",
+          publicationDate: "2020",
+          identifiers: { pmid: "31978945", epmcSource: "MED", epmcId: "31978945" },
+          citationCount: 15,
+          providers: ["europe-pmc"]
+        }
+      ]
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });
