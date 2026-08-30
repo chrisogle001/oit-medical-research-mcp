@@ -45,6 +45,18 @@ function fetchWorker(request: Request, env = testEnv()): Promise<Response> {
   return worker.fetch(request as WorkerRequest, env, context);
 }
 
+async function readMcpPayload(response: Response): Promise<Record<string, unknown>> {
+  const body = await response.text();
+  const payload = body.startsWith("event:")
+    ? body
+        .split("\n")
+        .find((line) => line.startsWith("data: "))
+        ?.slice("data: ".length)
+    : body;
+  if (!payload) throw new Error("The MCP response did not contain a JSON payload.");
+  return JSON.parse(payload) as Record<string, unknown>;
+}
+
 describe("Cloudflare Worker boundary", () => {
   it("exposes a minimal health check", async () => {
     const response = await fetchWorker(new Request("https://example.workers.dev/health"));
@@ -101,17 +113,66 @@ describe("Cloudflare Worker boundary", () => {
       testEnv({ ALLOWED_HOSTNAMES: "example.workers.dev" }),
       context
     );
-    const body = await response.text();
-    expect(response.status, body).toBe(200);
-    const payload = body.startsWith("event:")
-      ? body
-          .split("\n")
-          .find((line) => line.startsWith("data: "))
-          ?.slice("data: ".length)
-      : body;
-    expect(payload).toBeTruthy();
-    const result = JSON.parse(payload!) as { result?: { serverInfo?: { name?: string } } };
+    expect(response.status).toBe(200);
+    const result = (await readMcpPayload(response)) as {
+      result?: { serverInfo?: { name?: string } };
+    };
     expect(result.result?.serverInfo?.name).toBe("OIT - Medical Research MCP");
+  });
+
+  it("returns a visible MCP tool error for a malformed article identifier", async () => {
+    const response = await mcpApiHandler.fetch(
+      new Request("https://example.workers.dev/mcp", {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Host: "example.workers.dev",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: { name: "fetch", arguments: { id: "doi:not-a-valid-doi" } }
+        })
+      }) as WorkerRequest,
+      testEnv({ ALLOWED_HOSTNAMES: "example.workers.dev" }),
+      context
+    );
+    const payload = (await readMcpPayload(response)) as {
+      result?: { isError?: boolean; content?: Array<{ text?: string }> };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).toBe(true);
+    expect(payload.result?.content?.[0]?.text).toContain("The DOI is not valid");
+  });
+
+  it("rejects an absurd publication year through the MCP input schema", async () => {
+    const response = await mcpApiHandler.fetch(
+      new Request("https://example.workers.dev/mcp", {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Host: "example.workers.dev",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: { name: "search", arguments: { query: "clinical trial", fromYear: 1700 } }
+        })
+      }) as WorkerRequest,
+      testEnv({ ALLOWED_HOSTNAMES: "example.workers.dev" }),
+      context
+    );
+    const payload = await readMcpPayload(response);
+
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(payload)).toContain("isError");
+    expect(JSON.stringify(payload)).toContain("1800");
+    expect(JSON.stringify(payload).toLowerCase()).toContain("too small");
   });
 
   it("rate limits a research tool call without recording its query", async () => {

@@ -103,11 +103,13 @@ if (firstContent?.type !== "text" || !firstContent.text) {
 }
 const search = JSON.parse(firstContent.text) as {
   results?: Array<{
+    id?: string;
     title?: string;
     journal?: string;
     publicationDate?: string;
     providers?: unknown;
     fullTextAvailable?: boolean;
+    fullTextStatus?: unknown;
   }>;
 };
 if (!search.results?.length) throw new Error("Remote search returned no literature results.");
@@ -119,6 +121,41 @@ if (!search.results.some((result) => isKneeExerciseTrialTitle(result.title))) {
 }
 if (!search.results.every(isStructuredFilterMatch)) {
   throw new Error("Remote search did not honor its structured filters or metadata contract.");
+}
+
+const firstResultId = search.results[0]?.id;
+if (!firstResultId) throw new Error("Remote search returned a result without an ID.");
+const fetchCall = await callMcp("tools/call", {
+  name: "fetch",
+  arguments: { id: firstResultId }
+});
+const fetchContent = (
+  fetchCall.result?.content as Array<{ type?: string; text?: string }> | undefined
+)?.[0];
+if (fetchContent?.type !== "text" || !fetchContent.text) {
+  throw new Error("Remote fetch did not return MCP text content.");
+}
+const article = JSON.parse(fetchContent.text) as {
+  id?: string;
+  metadata?: { textType?: unknown; fullTextStatus?: unknown; providers?: unknown };
+  providerDiagnostics?: {
+    attempted?: unknown;
+    contributed?: unknown;
+    failed?: unknown;
+    partialFailure?: unknown;
+  };
+};
+if (
+  !article.id ||
+  typeof article.metadata?.textType !== "string" ||
+  typeof article.metadata.fullTextStatus !== "string" ||
+  !Array.isArray(article.metadata.providers) ||
+  !Array.isArray(article.providerDiagnostics?.attempted) ||
+  !Array.isArray(article.providerDiagnostics.contributed) ||
+  !Array.isArray(article.providerDiagnostics.failed) ||
+  typeof article.providerDiagnostics.partialFailure !== "boolean"
+) {
+  throw new Error("Remote fetch returned incomplete provenance diagnostics.");
 }
 
 const citationsCall = await callMcp("tools/call", {
@@ -191,6 +228,10 @@ console.log(
       tools,
       searchResultCount: search.results.length,
       searchFilters: { fromYear: 2020, journals: ["Trials"], fullTextOnly: true },
+      fetchedId: article.id,
+      fetchedTextType: article.metadata.textType,
+      fetchedFullTextStatus: article.metadata.fullTextStatus,
+      fetchProviderDiagnostics: article.providerDiagnostics,
       citationDirection: citations.direction,
       citationTotal: citations.total,
       citationResultCount: citations.results.length,
@@ -258,11 +299,14 @@ function isStructuredFilterMatch(result: {
   publicationDate?: string;
   providers?: unknown;
   fullTextAvailable?: boolean;
+  fullTextStatus?: unknown;
 }): boolean {
   return (
     result.journal?.toLowerCase() === "trials" &&
     Number(result.publicationDate?.slice(0, 4)) >= 2020 &&
     result.fullTextAvailable === true &&
+    typeof result.fullTextStatus === "string" &&
+    result.fullTextStatus !== "not-indicated" &&
     Array.isArray(result.providers) &&
     result.providers.length > 0
   );

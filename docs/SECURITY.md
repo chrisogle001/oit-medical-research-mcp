@@ -9,6 +9,7 @@
 - Account sessions are short-lived and HMAC-signed. A valid session completes later MCP consent requests without repeating the upstream GitHub token exchange. Users can list and revoke their MCP client grants from `/account`.
 - Protected MCP requests require the `mcp:research` scope. Research tool calls are limited to 30 per account per minute and oversized MCP request bodies are rejected before protocol parsing.
 - Provider fan-out is capped at three concurrent provider operations per research request.
+- Provider diagnostics expose only configured provider names and coarse outcomes. Raw upstream response bodies, URLs containing credentials, and exception messages are not returned to MCP clients.
 - `/health` and `/` reveal only service status and connection instructions.
 - Browser Origin and Host validation is delegated to the current Cloudflare Agents MCP handler. Custom domains require explicit allowlists.
 
@@ -22,7 +23,7 @@
 
 ## Data handling
 
-The application does not intentionally log search queries, article content, article identifiers, GitHub names, raw account IDs, or credentials. It sends queries and identifiers only to the selected literature providers. Each operator remains responsible for the providers' terms and privacy policies.
+The application does not intentionally log search queries, article content, article identifiers, GitHub names, raw account IDs, or credentials. It sends queries and identifiers only to the selected literature providers. DOI and PMCID follow-up calls are derived only from normalized provider records and remain subject to the same bounded HTTP and response-size controls. Each operator remains responsible for the providers' terms and privacy policies.
 
 Workers Analytics Engine receives one pseudonymous event per research tool call. The event contains a keyed account pseudonym, tool category, outcome, duration, and HTTP status. Cloudflare retains Analytics Engine data for three months. It is operational telemetry rather than billing-grade accounting because the platform may sample high-volume data.
 

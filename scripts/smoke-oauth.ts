@@ -140,6 +140,7 @@ try {
       publicationDate?: string;
       providers?: unknown;
       fullTextAvailable?: boolean;
+      fullTextStatus?: unknown;
       isPreprint?: boolean;
       isRetracted?: boolean;
     }>;
@@ -171,9 +172,16 @@ try {
     metadata?: {
       providers?: unknown;
       textType?: unknown;
+      fullTextStatus?: unknown;
       isPreprint?: unknown;
       isRetracted?: unknown;
       statusWarnings?: unknown;
+    };
+    providerDiagnostics?: {
+      attempted?: unknown;
+      contributed?: unknown;
+      failed?: unknown;
+      partialFailure?: unknown;
     };
   };
   if (!article.id || !article.text) throw new Error("Authenticated article fetch returned no usable article.");
@@ -181,7 +189,17 @@ try {
     ? article.metadata.providers.filter((provider): provider is string => typeof provider === "string")
     : [];
   const textType = typeof article.metadata?.textType === "string" ? article.metadata.textType : undefined;
-  if (!providers.length || !textType) throw new Error("Fetched article provenance was incomplete.");
+  if (
+    !providers.length ||
+    !textType ||
+    typeof article.metadata?.fullTextStatus !== "string" ||
+    !Array.isArray(article.providerDiagnostics?.attempted) ||
+    !Array.isArray(article.providerDiagnostics.contributed) ||
+    !Array.isArray(article.providerDiagnostics.failed) ||
+    typeof article.providerDiagnostics.partialFailure !== "boolean"
+  ) {
+    throw new Error("Fetched article provenance was incomplete.");
+  }
   if (
     typeof article.metadata?.isPreprint !== "boolean" ||
     typeof article.metadata?.isRetracted !== "boolean"
@@ -278,6 +296,8 @@ try {
         fetchedId: article.id,
         fetchedProviders: providers,
         fetchedTextType: textType,
+        fetchedFullTextStatus: article.metadata.fullTextStatus,
+        fetchProviderDiagnostics: article.providerDiagnostics,
         fetchedTextCharacters: article.text.length,
         retractedFixtureId: retractedArticle.id,
         retractedFixtureWarning: retractedArticle.metadata.statusWarnings,
@@ -340,6 +360,7 @@ function isStructuredFilterMatch(result: {
   publicationDate?: string;
   providers?: unknown;
   fullTextAvailable?: boolean;
+  fullTextStatus?: unknown;
   isPreprint?: boolean;
   isRetracted?: boolean;
 }): boolean {
@@ -347,6 +368,8 @@ function isStructuredFilterMatch(result: {
     result.journal?.toLowerCase() === "trials" &&
     Number(result.publicationDate?.slice(0, 4)) >= 2020 &&
     result.fullTextAvailable === true &&
+    typeof result.fullTextStatus === "string" &&
+    result.fullTextStatus !== "not-indicated" &&
     typeof result.isPreprint === "boolean" &&
     typeof result.isRetracted === "boolean" &&
     Array.isArray(result.providers) &&

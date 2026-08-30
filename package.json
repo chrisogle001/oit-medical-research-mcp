@@ -1,6 +1,6 @@
 {
   "name": "oit-medical-research-mcp",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "description": "Portable medical literature research MCP server for local and Cloudflare deployments.",
   "type": "module",
@@ -45,7 +45,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260829.1",
+    "@cloudflare/workers-types": "5.20260830.1",
     "@modelcontextprotocol/client": "2.0.0",
     "@types/node": "24.10.0",
     "esbuild": "0.28.2",

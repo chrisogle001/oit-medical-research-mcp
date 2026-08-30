@@ -99,7 +99,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.5.1"
+    version: "0.6.0"
   });
 
   server.registerTool(
@@ -107,7 +107,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     {
       title: "Search medical research",
       description:
-        "Search PubMed, PubMed Central, Europe PMC, and Crossref for medical literature. Supports publication-year, journal, and repository-full-text filters and returns deduplicated records with publication types, preprint and retraction warnings, source metadata, and stable IDs for use with fetch.",
+        "Search PubMed, PubMed Central, Europe PMC, and Crossref for medical literature. Supports publication-year, journal, and repository-full-text filters and returns deduplicated records with reconciled authors, explicit full-text status, provider contribution diagnostics, publication types, preprint and retraction warnings, and stable IDs for use with fetch.",
       inputSchema: SearchInput,
       annotations: {
         readOnlyHint: true,
@@ -132,7 +132,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     {
       title: "Explore an article's citation network",
       description:
-        "Retrieve papers referenced by an article or papers that cite it through Europe PMC's open citation network. Returns normalized, stable article IDs plus publication types and preprint or retraction warnings for follow-up fetch or citation calls.",
+        "Retrieve papers referenced by an article or papers that cite it through Europe PMC's open citation network. Returns normalized, stable article IDs, provider diagnostics, publication types, and preprint or retraction warnings for follow-up fetch or citation calls.",
       inputSchema: CitationsInput,
       annotations: {
         readOnlyHint: true,
@@ -149,7 +149,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     {
       title: "Get biomedical annotations for an article",
       description:
-        "Retrieve bounded, text-mined biomedical mentions for one article from Europe PMC, optionally filtered by annotation type, article section, or provider. Results include surrounding context and linked database entities, plus a warning that annotations may be incomplete or incorrect.",
+        "Retrieve bounded, text-mined biomedical mentions for one article from Europe PMC, optionally filtered by annotation type, article section, or provider. Results include provider diagnostics, surrounding context and linked database entities, plus a warning that annotations may be incomplete or incorrect.",
       inputSchema: AnnotationsInput,
       annotations: {
         readOnlyHint: true,
@@ -173,7 +173,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     {
       title: "Fetch a medical research article",
       description:
-        "Fetch normalized metadata, abstract, lawful open full text when available, identifiers, provenance, license, access links, publication types, and explicit preprint or retraction warnings for one article.",
+        "Fetch normalized metadata, abstract, lawful open full text when available, identifiers, reconciled authors, DOI-based Crossref and Unpaywall enrichment, provider contribution diagnostics, license, access links, explicit full-text retrieval status, publication types, and preprint or retraction warnings for one article.",
       inputSchema: FetchInput,
       annotations: {
         readOnlyHint: true,

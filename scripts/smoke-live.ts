@@ -16,17 +16,29 @@ if (
       result.journal?.toLowerCase() === "trials" &&
       Number(result.publicationDate?.slice(0, 4)) >= 2020 &&
       result.fullTextAvailable &&
+      result.fullTextStatus !== "not-indicated" &&
       typeof result.isPreprint === "boolean" &&
       typeof result.isRetracted === "boolean"
   )
 ) {
   throw new Error("Live search did not honor the structured journal, date, and full-text filters.");
 }
+if (
+  !search.providerDiagnostics.attempted.includes("pubmed") ||
+  !search.providerDiagnostics.attempted.includes("europe-pmc") ||
+  search.providerDiagnostics.failed.some(
+    (provider) => !search.providerDiagnostics.attempted.includes(provider)
+  )
+) {
+  throw new Error("Live search provider diagnostics were incomplete.");
+}
 
 const article = await service.fetch(search.results[0]!.id);
 if (
   typeof article.metadata.isPreprint !== "boolean" ||
-  typeof article.metadata.isRetracted !== "boolean"
+  typeof article.metadata.isRetracted !== "boolean" ||
+  !article.metadata.fullTextStatus ||
+  article.providerDiagnostics.attempted.length === 0
 ) {
   throw new Error("Fetched article status metadata was incomplete.");
 }
@@ -64,6 +76,8 @@ console.log(
       firstResultPublicationDate: search.results[0]!.publicationDate,
       firstResultProviders: search.results[0]!.providers,
       firstResultFullTextAvailable: search.results[0]!.fullTextAvailable,
+      firstResultFullTextStatus: search.results[0]!.fullTextStatus,
+      searchProviderDiagnostics: search.providerDiagnostics,
       firstResultIsPreprint: search.results[0]!.isPreprint,
       firstResultIsRetracted: search.results[0]!.isRetracted,
       fetchedId: article.id,
@@ -71,6 +85,8 @@ console.log(
       textCharacters: article.text.length,
       providers: article.metadata.providers,
       textType: article.metadata.textType,
+      fullTextStatus: article.metadata.fullTextStatus,
+      fetchProviderDiagnostics: article.providerDiagnostics,
       retractedFixtureId: retractedArticle.id,
       retractedFixtureWarning: retractedArticle.metadata.statusWarnings,
       citationDirection: citations.direction,

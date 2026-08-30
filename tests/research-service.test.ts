@@ -61,9 +61,17 @@ describe("ResearchService", () => {
           providers: ["europe-pmc", "pubmed"],
           isPreprint: false,
           isRetracted: false,
-          fullTextAvailable: true
+          fullTextAvailable: true,
+          fullTextStatus: "repository-indexed"
         }
-      ]
+      ],
+      providerDiagnostics: {
+        attempted: ["pubmed", "europe-pmc"],
+        contributed: ["europe-pmc", "pubmed"],
+        noRecord: [],
+        failed: [],
+        partialFailure: false
+      }
     });
   });
 
@@ -135,6 +143,16 @@ describe("ResearchService", () => {
     const service = new ResearchService({ providers: [pubmed] });
     await expect(service.search("year range", 10, { fromYear: 2025, toYear: 2020 })).rejects.toThrow(
       "fromYear must be less than or equal to toYear"
+    );
+  });
+
+  it("rejects publication years outside the supported range", async () => {
+    const service = new ResearchService({ providers: [pubmed] });
+    await expect(service.search("year range", 10, { fromYear: 1799 })).rejects.toThrow(
+      "fromYear must be a year between 1800 and 2100"
+    );
+    await expect(service.search("year range", 10, { toYear: 2101 })).rejects.toThrow(
+      "toYear must be a year between 1800 and 2100"
     );
   });
 
@@ -334,6 +352,207 @@ describe("ResearchService", () => {
       textType: "lawful-full-text",
       providers: ["europe-pmc", "pubmed"]
     });
+  });
+
+  it("follows a DOI discovered from a PMID for Crossref and Unpaywall enrichment", async () => {
+    const requested: string[] = [];
+    const providers: ResearchProvider[] = [
+      {
+        name: "pubmed",
+        async search() {
+          return [];
+        },
+        async fetch(identifier) {
+          requested.push(`pubmed:${identifier.type}`);
+          if (identifier.type !== "pmid") return null;
+          return {
+            title: "Sleep and cognition",
+            authors: ["Spencer R"],
+            abstract: "A structured abstract.",
+            identifiers: { pmid: "123", doi: "10.1000/sleep" },
+            providers: ["pubmed"]
+          };
+        }
+      },
+      {
+        name: "europe-pmc",
+        async search() {
+          return [];
+        },
+        async fetch(identifier) {
+          requested.push(`europe-pmc:${identifier.type}`);
+          return null;
+        }
+      },
+      {
+        name: "crossref",
+        async search() {
+          return [];
+        },
+        async fetch(identifier) {
+          requested.push(`crossref:${identifier.type}`);
+          if (identifier.type !== "doi") return null;
+          return {
+            title: "Sleep and cognition",
+            authors: ["Rebecca Spencer"],
+            license: "https://creativecommons.org/licenses/by/4.0/",
+            citationCount: 12,
+            identifiers: { doi: identifier.value },
+            providers: ["crossref"]
+          };
+        }
+      },
+      {
+        name: "unpaywall",
+        async search() {
+          return [];
+        },
+        async fetch(identifier) {
+          requested.push(`unpaywall:${identifier.type}`);
+          if (identifier.type !== "doi") return null;
+          return {
+            title: "Sleep and cognition",
+            pdfUrl: "https://publisher.example/article.pdf",
+            isOpenAccess: true,
+            identifiers: { doi: identifier.value },
+            providers: ["unpaywall"]
+          };
+        }
+      }
+    ];
+    const service = new ResearchService({ providers });
+
+    const result = await service.fetch("pmid:123");
+
+    expect(requested).toContain("crossref:doi");
+    expect(requested).toContain("unpaywall:doi");
+    expect(result.metadata).toMatchObject({
+      authors: ["Rebecca Spencer"],
+      license: "https://creativecommons.org/licenses/by/4.0/",
+      pdfUrl: "https://publisher.example/article.pdf",
+      citationCount: 12,
+      isOpenAccess: true,
+      textType: "abstract",
+      fullTextStatus: "open-access-location"
+    });
+    expect(result.providerDiagnostics).toMatchObject({
+      attempted: ["pubmed", "europe-pmc", "crossref", "unpaywall"],
+      failed: [],
+      partialFailure: false
+    });
+    expect(result.providerDiagnostics.contributed).toEqual(
+      expect.arrayContaining(["pubmed", "crossref", "unpaywall"])
+    );
+    expect(result.providerDiagnostics.noRecord).toEqual(["europe-pmc"]);
+  });
+
+  it("distinguishes indexed full text from text actually retrieved", async () => {
+    const provider: ResearchProvider = {
+      name: "pubmed",
+      async search() {
+        return [];
+      },
+      async fetch(identifier) {
+        if (identifier.type !== "pmid") return null;
+        return {
+          title: "Repository-indexed article",
+          abstract: "The abstract remains usable.",
+          identifiers: { pmid: "321", pmcid: "PMC321" },
+          providers: ["pubmed"]
+        };
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const result = await service.fetch("pmid:321");
+
+    expect(result.metadata).toMatchObject({
+      textType: "abstract",
+      fullTextStatus: "repository-indexed"
+    });
+  });
+
+  it("labels metadata-only DOI records without claiming full text", async () => {
+    const provider: ResearchProvider = {
+      name: "crossref",
+      async search() {
+        return [];
+      },
+      async fetch(identifier) {
+        if (identifier.type !== "doi") return null;
+        return {
+          title: "Paywalled metadata record",
+          identifiers: { doi: identifier.value },
+          providers: ["crossref"]
+        };
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const result = await service.fetch("doi:10.1000/paywalled");
+
+    expect(result.metadata).toMatchObject({
+      textType: "metadata",
+      fullTextStatus: "not-indicated"
+    });
+    expect(result.metadata).not.toHaveProperty("pdfUrl");
+    expect(result.metadata).not.toHaveProperty("fullTextUrl");
+  });
+
+  it("reports provider partial failures without exposing raw upstream errors", async () => {
+    const healthy: ResearchProvider = {
+      name: "pubmed",
+      async search() {
+        return [
+          {
+            title: "A resilient result",
+            identifiers: { pmid: "555" },
+            providers: ["pubmed"]
+          }
+        ];
+      },
+      async fetch() {
+        return null;
+      }
+    };
+    const unavailable: ResearchProvider = {
+      name: "crossref",
+      async search() {
+        throw new Error("sensitive upstream diagnostic");
+      },
+      async fetch() {
+        return null;
+      }
+    };
+    const service = new ResearchService({ providers: [healthy, unavailable] });
+
+    const result = await service.search("resilient result");
+
+    expect(result.providerDiagnostics).toEqual({
+      attempted: ["pubmed", "crossref"],
+      contributed: ["pubmed"],
+      noRecord: [],
+      failed: ["crossref"],
+      partialFailure: true
+    });
+    expect(JSON.stringify(result)).not.toContain("sensitive upstream diagnostic");
+  });
+
+  it("returns a clear not-found error for an unresolvable DOI", async () => {
+    const provider: ResearchProvider = {
+      name: "crossref",
+      async search() {
+        return [];
+      },
+      async fetch() {
+        return null;
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    await expect(service.fetch("doi:10.1000/missing")).rejects.toThrow(
+      "No article was found for doi:10.1000/missing"
+    );
   });
 
   it("returns explicit preprint and retraction warnings", async () => {

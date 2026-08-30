@@ -5,6 +5,20 @@ export type FetchLike = (
 
 export type ProviderName = "pubmed" | "europe-pmc" | "crossref" | "unpaywall";
 
+export type FullTextStatus =
+  | "retrieved"
+  | "repository-indexed"
+  | "open-access-location"
+  | "not-indicated";
+
+export interface ProviderDiagnostics {
+  attempted: ProviderName[];
+  contributed: ProviderName[];
+  noRecord: ProviderName[];
+  failed: ProviderName[];
+  partialFailure: boolean;
+}
+
 export interface CanonicalIdentifier {
   type: "pmid" | "pmcid" | "doi" | "epmc";
   value: string;
@@ -54,11 +68,13 @@ export interface SearchResult {
   publicationDate?: string;
   isOpenAccess?: boolean;
   fullTextAvailable: boolean;
+  fullTextStatus: FullTextStatus;
   citationCount?: number;
 }
 
 export interface SearchResponse {
   results: SearchResult[];
+  providerDiagnostics: ProviderDiagnostics;
 }
 
 export type CitationDirection = "references" | "citedBy";
@@ -74,6 +90,7 @@ export interface CitationResponse {
   direction: CitationDirection;
   total: number;
   results: SearchResult[];
+  providerDiagnostics: ProviderDiagnostics;
 }
 
 export interface AnnotationTag {
@@ -111,6 +128,7 @@ export interface AnnotationResponse {
   total: number;
   annotations: ResearchAnnotation[];
   disclaimer: string;
+  providerDiagnostics: ProviderDiagnostics;
 }
 
 export interface FetchResponse {
@@ -118,7 +136,28 @@ export interface FetchResponse {
   title: string;
   text: string;
   url: string;
-  metadata: Record<string, unknown>;
+  metadata: FetchMetadata;
+  providerDiagnostics: ProviderDiagnostics;
+}
+
+export interface FetchMetadata {
+  identifiers: ArticleIdentifiers;
+  authors?: string[];
+  publicationTypes?: string[];
+  isPreprint: boolean;
+  isRetracted: boolean;
+  statusWarnings?: string[];
+  journal?: string;
+  publicationDate?: string;
+  license?: string;
+  isOpenAccess?: boolean;
+  fullTextUrl?: string;
+  pdfUrl?: string;
+  citationCount?: number;
+  providers: ProviderName[];
+  retrievedAt: string;
+  textType: "lawful-full-text" | "abstract" | "metadata";
+  fullTextStatus: FullTextStatus;
 }
 
 export interface ProviderContext {

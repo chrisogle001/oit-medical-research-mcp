@@ -11,7 +11,10 @@ import type {
   CitationDirection,
   CitationResponse,
   FetchResponse,
+  FullTextStatus,
   ProviderContext,
+  ProviderDiagnostics,
+  ProviderName,
   ResearchProvider,
   ResearchRecord,
   ResearchServiceOptions,
@@ -24,6 +27,11 @@ const MIN_PUBLICATION_YEAR = 1800;
 const MAX_PUBLICATION_YEAR = 2100;
 const ANNOTATION_DISCLAIMER =
   "Europe PMC annotations are automated or contributed text-mining signals. They may be incomplete or incorrect and are not validated clinical findings.";
+
+interface ProviderAttempt<T> {
+  provider: ProviderName;
+  result: PromiseSettledResult<T>;
+}
 
 export class ResearchService {
   private readonly providers: ResearchProvider[];
@@ -65,13 +73,15 @@ export class ResearchService {
     const normalizedFilters = normalizeSearchFilters(filters);
     const resultLimit = Math.min(this.maxResults, positiveInteger(requestedLimit, this.maxResults));
     const perProvider = Math.max(4, Math.ceil(resultLimit / 2));
-    const settled = await settleWithConcurrency(
+    const attempts = await settleProviderOperations(
       this.providers,
       this.maxProviderConcurrency,
       (provider) => provider.search(normalizedQuery, perProvider, normalizedFilters)
     );
-    const records = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-    if (records.length === 0 && settled.every((result) => result.status === "rejected")) {
+    const records = attempts.flatMap(({ result }) =>
+      result.status === "fulfilled" ? result.value : []
+    );
+    if (records.length === 0 && attempts.every(({ result }) => result.status === "rejected")) {
       throw new Error("The medical literature sources are temporarily unavailable.");
     }
 
@@ -82,7 +92,13 @@ export class ResearchService {
       .filter(hasStableIdentifier)
       .slice(0, resultLimit)
       .map(toSearchResult);
-    return { results };
+    return {
+      results,
+      providerDiagnostics: buildProviderDiagnostics(
+        attempts,
+        results.flatMap((result) => result.providers)
+      )
+    };
   }
 
   async citations(
@@ -101,15 +117,15 @@ export class ResearchService {
       throw new Error("Citation lookup is not supported by the configured literature sources.");
     }
 
-    const settled = await settleWithConcurrency(
+    const attempts = await settleProviderOperations(
       providers,
       this.maxProviderConcurrency,
       (provider) => provider.citations!(identifier, direction, resultLimit)
     );
-    const responses = settled.flatMap((result) =>
+    const responses = attempts.flatMap(({ result }) =>
       result.status === "fulfilled" && result.value ? [result.value] : []
     );
-    if (responses.length === 0 && settled.every((result) => result.status === "rejected")) {
+    if (responses.length === 0 && attempts.every(({ result }) => result.status === "rejected")) {
       throw new Error("The citation network is temporarily unavailable.");
     }
     if (responses.length === 0) throw new Error(`No article was found for ${id}.`);
@@ -123,7 +139,8 @@ export class ResearchService {
       article: toSearchResult(article),
       direction,
       total: Math.max(...responses.map((response) => response.total), results.length),
-      results
+      results,
+      providerDiagnostics: buildProviderDiagnostics(attempts, article.providers)
     };
   }
 
@@ -141,15 +158,15 @@ export class ResearchService {
       throw new Error("Article annotation lookup is not supported by the configured literature sources.");
     }
 
-    const settled = await settleWithConcurrency(
+    const attempts = await settleProviderOperations(
       providers,
       this.maxProviderConcurrency,
       (provider) => provider.annotations!(identifier, resultLimit, normalizedFilters)
     );
-    const responses = settled.flatMap((result) =>
+    const responses = attempts.flatMap(({ result }) =>
       result.status === "fulfilled" && result.value ? [result.value] : []
     );
-    if (responses.length === 0 && settled.every((result) => result.status === "rejected")) {
+    if (responses.length === 0 && attempts.every(({ result }) => result.status === "rejected")) {
       throw new Error("The Europe PMC annotation service is temporarily unavailable.");
     }
     if (responses.length === 0) throw new Error(`No article was found for ${id}.`);
@@ -163,20 +180,50 @@ export class ResearchService {
       source: "europe-pmc",
       total: Math.max(...responses.map((response) => response.total), annotations.length),
       annotations,
-      disclaimer: ANNOTATION_DISCLAIMER
+      disclaimer: ANNOTATION_DISCLAIMER,
+      providerDiagnostics: buildProviderDiagnostics(attempts, article.providers)
     };
   }
 
   async fetch(id: string): Promise<FetchResponse> {
     if (id.length > 2_048) throw new Error("The article identifier is too long.");
     const identifier = parseIdentifier(id);
-    const firstPass = await this.fetchFromProviders(identifier);
-    if (firstPass.length === 0) throw new Error(`No article was found for ${id}.`);
+    const records: ResearchRecord[] = [];
+    const attempts: Array<ProviderAttempt<ResearchRecord | null>> = [];
+    const fetchedIdentifiers = new Set<string>();
+    const followIdentifier = async (nextIdentifier: typeof identifier): Promise<void> => {
+      const key = identifierKey(nextIdentifier);
+      if (fetchedIdentifiers.has(key)) return;
+      fetchedIdentifiers.add(key);
+      const pass = await this.fetchFromProviders(nextIdentifier);
+      attempts.push(...pass);
+      records.push(
+        ...pass.flatMap(({ result }) =>
+          result.status === "fulfilled" && result.value ? [result.value] : []
+        )
+      );
+    };
 
-    let merged = mergeRecords(firstPass);
+    await followIdentifier(identifier);
+    if (records.length === 0) {
+      if (attempts.every(({ result }) => result.status === "rejected")) {
+        throw new Error("The medical literature sources are temporarily unavailable.");
+      }
+      throw new Error(`No article was found for ${id}.`);
+    }
+
+    let merged = mergeRecords(records);
     if (merged.identifiers.pmcid && !merged.fullText) {
-      const pmcPass = await this.fetchFromProviders({ type: "pmcid", value: merged.identifiers.pmcid });
-      if (pmcPass.length) merged = mergeRecords([...firstPass, ...pmcPass]);
+      await followIdentifier({ type: "pmcid", value: merged.identifiers.pmcid });
+      merged = mergeRecords(records);
+    }
+    if (merged.identifiers.doi) {
+      await followIdentifier({ type: "doi", value: merged.identifiers.doi });
+      merged = mergeRecords(records);
+    }
+    if (merged.identifiers.pmcid && !merged.fullText) {
+      await followIdentifier({ type: "pmcid", value: merged.identifiers.pmcid });
+      merged = mergeRecords(records);
     }
 
     const text = (merged.fullText ?? merged.abstract ?? metadataSummary(merged)).slice(
@@ -208,19 +255,20 @@ export class ResearchService {
         ...(merged.citationCount !== undefined ? { citationCount: merged.citationCount } : {}),
         providers: merged.providers,
         retrievedAt: new Date().toISOString(),
-        textType: merged.fullText ? "lawful-full-text" : merged.abstract ? "abstract" : "metadata"
-      }
+        textType: merged.fullText ? "lawful-full-text" : merged.abstract ? "abstract" : "metadata",
+        fullTextStatus: fullTextStatus(merged)
+      },
+      providerDiagnostics: buildProviderDiagnostics(attempts, merged.providers)
     };
   }
 
-  private async fetchFromProviders(identifier: Parameters<ResearchProvider["fetch"]>[0]): Promise<ResearchRecord[]> {
-    const settled = await settleWithConcurrency(
+  private async fetchFromProviders(
+    identifier: Parameters<ResearchProvider["fetch"]>[0]
+  ): Promise<Array<ProviderAttempt<ResearchRecord | null>>> {
+    return settleProviderOperations(
       this.providers,
       this.maxProviderConcurrency,
       (provider) => provider.fetch(identifier)
-    );
-    return settled.flatMap((result) =>
-      result.status === "fulfilled" && result.value ? [result.value] : []
     );
   }
 }
@@ -327,11 +375,42 @@ function journalsMatch(left: string, right: string): boolean {
 }
 
 function hasRepositoryFullText(record: ResearchRecord): boolean {
-  return Boolean(record.fullText || record.fullTextUrl || record.identifiers.pmcid);
+  const status = fullTextStatus(record);
+  return status === "retrieved" || status === "repository-indexed";
+}
+
+function fullTextStatus(record: ResearchRecord): FullTextStatus {
+  if (record.fullText) return "retrieved";
+  if (
+    record.identifiers.pmcid ||
+    (record.providers.includes("europe-pmc") && Boolean(record.fullTextUrl || record.pdfUrl)) ||
+    isRepositoryUrl(record.fullTextUrl) ||
+    isRepositoryUrl(record.pdfUrl)
+  ) {
+    return "repository-indexed";
+  }
+  if (record.fullTextUrl || record.pdfUrl) return "open-access-location";
+  return "not-indicated";
+}
+
+function isRepositoryUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "pmc.ncbi.nlm.nih.gov" ||
+      hostname === "www.ncbi.nlm.nih.gov" ||
+      hostname === "europepmc.org" ||
+      hostname === "www.ebi.ac.uk"
+    );
+  } catch {
+    return false;
+  }
 }
 
 function toSearchResult(record: ResearchRecord) {
   const statusWarnings = researchStatusWarnings(record);
+  const textStatus = fullTextStatus(record);
   return {
     id: canonicalId(record),
     title: record.title,
@@ -346,7 +425,8 @@ function toSearchResult(record: ResearchRecord) {
     ...(record.journal ? { journal: record.journal } : {}),
     ...(record.publicationDate ? { publicationDate: record.publicationDate } : {}),
     ...(record.isOpenAccess !== undefined ? { isOpenAccess: record.isOpenAccess } : {}),
-    fullTextAvailable: hasRepositoryFullText(record),
+    fullTextAvailable: textStatus !== "not-indicated",
+    fullTextStatus: textStatus,
     ...(record.citationCount !== undefined ? { citationCount: record.citationCount } : {})
   };
 }
@@ -383,6 +463,51 @@ async function settleWithConcurrency<Item, Result>(
   );
   await Promise.all(workers);
   return results;
+}
+
+async function settleProviderOperations<Result>(
+  providers: readonly ResearchProvider[],
+  concurrency: number,
+  operation: (provider: ResearchProvider) => Promise<Result>
+): Promise<Array<ProviderAttempt<Result>>> {
+  const results = await settleWithConcurrency(providers, concurrency, operation);
+  return providers.map((provider, index) => ({
+    provider: provider.name,
+    result: results[index]!
+  }));
+}
+
+function buildProviderDiagnostics<T>(
+  attempts: Array<ProviderAttempt<T>>,
+  contributedProviders: ProviderName[]
+): ProviderDiagnostics {
+  const attempted = uniqueProviderNames(attempts.map((attempt) => attempt.provider));
+  const contributed = uniqueProviderNames(contributedProviders);
+  const failed = uniqueProviderNames(
+    attempts.flatMap((attempt) => (attempt.result.status === "rejected" ? [attempt.provider] : []))
+  );
+  const noRecord = attempted.filter(
+    (provider) => !contributed.includes(provider) && !failed.includes(provider)
+  );
+  return {
+    attempted,
+    contributed,
+    noRecord,
+    failed,
+    partialFailure: failed.length > 0
+  };
+}
+
+function uniqueProviderNames(values: ProviderName[]): ProviderName[] {
+  return [...new Set(values)];
+}
+
+function identifierKey(identifier: {
+  type: string;
+  value: string;
+  source?: string;
+}): string {
+  return `${identifier.type}:${identifier.source ?? ""}:${identifier.value}`.toLowerCase();
 }
 
 function hasStableIdentifier(record: ResearchRecord): boolean {
