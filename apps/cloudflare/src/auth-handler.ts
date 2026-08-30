@@ -6,6 +6,7 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import {
   renderAccount,
+  renderAuthorizationRedirect,
   renderConsent,
   renderError,
   renderGitHubContinue,
@@ -181,7 +182,7 @@ async function continueClientAuthorization(request: Request, env: OAuthEnv): Pro
 
   if (decision === "deny") {
     return appendCookie(
-      redirectAuthorizationError(oauthRequest, "access_denied", "You declined access."),
+      authorizationErrorRedirectPage(oauthRequest, "access_denied", "You declined access."),
       clearConsentCookie(consentState)
     );
   }
@@ -400,9 +401,9 @@ async function completeMcpAuthorization(
     scope: grantedScopes,
     props: { ...user, scopes: grantedScopes }
   });
-  const headers = new Headers({ Location: redirectTo, "Cache-Control": "no-store" });
-  if (sessionCookie) headers.append("Set-Cookie", sessionCookie);
-  return new Response(null, { status: 302, headers });
+  const response = renderAuthorizationRedirect(redirectTo);
+  if (sessionCookie) response.headers.append("Set-Cookie", sessionCookie);
+  return response;
 }
 
 async function showAccount(request: Request, env: OAuthEnv): Promise<Response> {
@@ -743,6 +744,19 @@ function redirectAuthorizationError(
   redirect.searchParams.set("state", request.state);
   if (request.issuer) redirect.searchParams.set("iss", request.issuer);
   return redirectResponse(redirect.toString());
+}
+
+function authorizationErrorRedirectPage(
+  request: AuthRequest,
+  code: string,
+  description: string
+): Response {
+  const redirect = new URL(request.redirectUri);
+  redirect.searchParams.set("error", code);
+  redirect.searchParams.set("error_description", description);
+  redirect.searchParams.set("state", request.state);
+  if (request.issuer) redirect.searchParams.set("iss", request.issuer);
+  return renderAuthorizationRedirect(redirect.toString());
 }
 
 function redirectResponse(location: string, status = 302): Response {

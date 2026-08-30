@@ -79,14 +79,46 @@ export function renderConsent(options: ConsentPageOptions): Response {
         </section>
       </main>`
     ),
+    200
+  );
+}
+
+export function renderAuthorizationRedirect(redirectUrl: string): Response {
+  let destination: URL;
+  try {
+    destination = new URL(redirectUrl);
+  } catch {
+    return renderError(
+      "Invalid authorization redirect",
+      "The MCP client supplied an invalid callback address."
+    );
+  }
+  if (destination.protocol !== "https:" && destination.protocol !== "http:") {
+    return renderError(
+      "Invalid authorization redirect",
+      "The MCP client callback must use HTTP or HTTPS."
+    );
+  }
+
+  const safeDestination = escapeHtml(destination.toString());
+  return htmlResponse(
+    page(
+      "Connection approved",
+      `<main class="narrow">
+        <section class="card consent">
+          <span class="eyebrow">Authorization approved</span>
+          <h1>Finishing your connection</h1>
+          <p class="lead">You will return to your MCP client automatically.</p>
+          <div class="actions"><a class="button primary" href="${safeDestination}">Finish connection</a></div>
+        </section>
+      </main>`,
+      `<meta http-equiv="refresh" content="0;url=${safeDestination}">`
+    ),
     200,
     {
-      // Chromium applies form-action to redirects after form submission. The
-      // consent form posts to this Worker and then redirects to the validated
-      // OAuth client callback, so that callback origin must be allowed too.
-      "Content-Security-Policy": consentContentSecurityPolicy(
-        options.oauthRequest.redirectUri
-      )
+      "Cache-Control": "no-store",
+      "Content-Security-Policy":
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
     }
   );
 }
@@ -210,23 +242,9 @@ function htmlResponse(body: string, status = 200, extraHeaders?: HeadersInit): R
   });
 }
 
-function consentContentSecurityPolicy(redirectUri: string): string {
-  const formActions = ["'self'"];
-  try {
-    const redirect = new URL(redirectUri);
-    if (redirect.protocol === "https:" || redirect.protocol === "http:") {
-      formActions.push(redirect.origin);
-    }
-  } catch {
-    // parseAuthRequest validates redirectUri before renderConsent is called.
-    // Retain the restrictive default if a reconstructed request is malformed.
-  }
-  return `default-src 'none'; style-src 'unsafe-inline'; img-src https://avatars.githubusercontent.com data:; form-action ${formActions.join(" ")}; base-uri 'none'; frame-ancestors 'none'`;
-}
-
-function page(title: string, content: string): string {
+function page(title: string, content: string, head = ""): string {
   return `<!doctype html>
-  <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · OIT</title><style>${styles}</style></head><body>${content}</body></html>`;
+  <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${head}<title>${escapeHtml(title)} · OIT</title><style>${styles}</style></head><body>${content}</body></html>`;
 }
 
 function scopeLabel(scope: string): string {

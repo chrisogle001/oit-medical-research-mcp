@@ -134,8 +134,9 @@ describe("Cloudflare account controls", () => {
       }, false)
     );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Location")).toBeNull();
+    expect(await response.text()).toContain(
       "https://claude.example/callback?code=issued"
     );
     expect(completed).toMatchObject({
@@ -218,7 +219,7 @@ describe("Cloudflare account controls", () => {
       }, false)
     );
 
-    expect(response.status).toBe(302);
+    expect(response.status).toBe(200);
     expect(completed).toMatchObject({
       userId: expect.stringMatching(/^pseudonymous_/u),
       props: { identityProvider: "pseudonymous" }
@@ -278,8 +279,9 @@ describe("Cloudflare account controls", () => {
       })
     );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Location")).toBeNull();
+    expect(await response.text()).toContain(
       "https://claude.example/callback?code=issued"
     );
     expect(completed).toMatchObject({
@@ -393,8 +395,8 @@ describe("Cloudflare account controls", () => {
     const firstResult = await authHandler.fetch(approve(firstState!) as AuthRequest, env);
     const secondResult = await authHandler.fetch(approve(secondState!) as AuthRequest, env);
 
-    expect(firstResult.status).toBe(302);
-    expect(secondResult.status).toBe(302);
+    expect(firstResult.status).toBe(200);
+    expect(secondResult.status).toBe(200);
     expect(completed).toHaveLength(2);
     expect(completed.map((item) => item.request.clientId).sort()).toEqual([
       "chatgpt-client-first",
@@ -477,8 +479,9 @@ describe("Cloudflare account controls", () => {
           }
         })
       );
-      expect(response.status).toBe(302);
-      expect(response.headers.get("Location")).toBe(
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Location")).toBeNull();
+      expect(await response.text()).toContain(
         "https://claude.example/callback?code=recovered"
       );
       expect(completed).toMatchObject({

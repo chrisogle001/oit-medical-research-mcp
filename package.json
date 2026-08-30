@@ -1,6 +1,6 @@
 {
   "name": "oit-medical-research-mcp",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "description": "Portable medical literature research MCP server for local and Cloudflare deployments.",
   "type": "module",

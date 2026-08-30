@@ -5,6 +5,7 @@ import {
 } from "../apps/cloudflare/src/auth-handler.js";
 import {
   escapeHtml,
+  renderAuthorizationRedirect,
   renderConsent,
   renderGitHubContinue,
   renderHome
@@ -59,7 +60,7 @@ describe("Cloudflare OAuth security helpers", () => {
     expect(policy).not.toContain("form-action *");
   });
 
-  it("allows a consent redirect only to the validated OAuth callback origin", () => {
+  it("keeps consent form submissions on the Worker", () => {
     const response = renderConsent({
       client: {
         clientId: "chatgpt-client",
@@ -77,9 +78,31 @@ describe("Cloudflare OAuth security helpers", () => {
       consentState: consentStateA
     });
     const policy = response.headers.get("Content-Security-Policy");
-    expect(policy).toContain("form-action 'self' https://chatgpt.com");
+    expect(policy).toContain("form-action 'self'");
+    expect(policy).not.toContain("https://chatgpt.com");
     expect(policy).not.toContain("connector_platform_oauth_redirect");
     expect(policy).not.toContain("form-action *");
+  });
+
+  it("finishes authorization in a new browser navigation with a safe fallback link", async () => {
+    const response = renderAuthorizationRedirect(
+      "https://gemini.google.com/oauth/callback?code=issued&state=client-state"
+    );
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Location")).toBeNull();
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(body).toContain('http-equiv="refresh"');
+    expect(body).toContain(
+      "https://gemini.google.com/oauth/callback?code=issued&amp;state=client-state"
+    );
+    expect(body).toContain("Finish connection");
+  });
+
+  it("rejects an unsafe authorization handoff scheme", async () => {
+    const response = renderAuthorizationRedirect("javascript:alert(1)");
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("callback must use HTTP or HTTPS");
   });
 
   it("uses an escaped normal link for the GitHub navigation step", async () => {

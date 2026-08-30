@@ -65,12 +65,16 @@ const approvals = await Promise.all(
     })
   )
 );
-const authorizationCodes = approvals.map((response, index) => {
-  if (response.status !== 302) {
+const approvalResponses = approvals.map((response, index) => {
+  if (response.status !== 200) {
     throw new Error(`Concurrent approval ${index + 1} returned HTTP ${response.status}.`);
   }
-  const location = response.headers.get("Location");
-  if (!location) throw new Error(`Concurrent approval ${index + 1} did not redirect to its client.`);
+  return response;
+});
+const approvalBodies = await Promise.all(approvalResponses.map((response) => response.text()));
+const issuedCodes = approvalBodies.map((body, index) => {
+  const location = extractAuthorizationHandoff(body);
+  if (!location) throw new Error(`Concurrent approval ${index + 1} did not hand off to its client.`);
   const redirect = new URL(location);
   if (`${redirect.origin}${redirect.pathname}` !== redirectUri) {
     throw new Error(`Concurrent approval ${index + 1} redirected to an unexpected client.`);
@@ -83,7 +87,7 @@ const authorizationCodes = approvals.map((response, index) => {
   }
   const code = redirect.searchParams.get("code");
   if (!code) throw new Error(`Concurrent approval ${index + 1} did not issue a code.`);
-  const sessionCookie = response.headers
+  const sessionCookie = approvalResponses[index]!.headers
     .getSetCookie()
     .find((value) => value.startsWith("__Host-MEDICAL_RESEARCH_SESSION="));
   if (!sessionCookie) {
@@ -91,12 +95,12 @@ const authorizationCodes = approvals.map((response, index) => {
   }
   return code;
 });
-if (authorizationCodes[0] === authorizationCodes[1]) {
+if (issuedCodes[0] === issuedCodes[1]) {
   throw new Error("Concurrent approvals reused the same authorization code.");
 }
 
 const accessTokens = await Promise.all(
-  authorizationCodes.map((code, index) => exchangeAuthorizationCode(code, attempts[index]!.verifier))
+  issuedCodes.map((code, index) => exchangeAuthorizationCode(code, attempts[index]!.verifier))
 );
 if (accessTokens[0] === accessTokens[1]) {
   throw new Error("Concurrent authorization codes returned the same access token.");
@@ -132,6 +136,17 @@ function createAuthorizationAttempt(label: string): { url: string; verifier: str
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("resource", `${baseUrl}/mcp`);
   return { url: url.toString(), verifier };
+}
+
+function extractAuthorizationHandoff(body: string): string | null {
+  const encoded = body.match(/http-equiv="refresh" content="0;url=([^"]+)"/u)?.[1];
+  if (!encoded) return null;
+  return encoded
+    .replace(/&quot;/gu, '"')
+    .replace(/&#039;/gu, "'")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&amp;/gu, "&");
 }
 
 async function exchangeAuthorizationCode(code: string, verifier: string): Promise<string> {
