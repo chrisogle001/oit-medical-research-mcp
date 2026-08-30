@@ -19,10 +19,12 @@ export class ResearchService {
   private readonly providers: ResearchProvider[];
   private readonly maxResults: number;
   private readonly maxTextCharacters: number;
+  private readonly maxProviderConcurrency: number;
 
   constructor(options: ResearchServiceOptions = {}) {
     this.maxResults = options.maxResults ?? 10;
     this.maxTextCharacters = options.maxTextCharacters ?? 120_000;
+    this.maxProviderConcurrency = positiveInteger(options.maxProviderConcurrency, 3);
     if (options.providers) {
       this.providers = options.providers;
       return;
@@ -43,9 +45,14 @@ export class ResearchService {
   async search(query: string): Promise<SearchResponse> {
     const normalizedQuery = query.trim();
     if (normalizedQuery.length < 2) throw new Error("Enter a more specific medical research query.");
+    if (normalizedQuery.length > 1_000) {
+      throw new Error("The medical research query is too long.");
+    }
     const perProvider = Math.max(4, Math.ceil(this.maxResults / 2));
-    const settled = await Promise.allSettled(
-      this.providers.map((provider) => provider.search(normalizedQuery, perProvider))
+    const settled = await settleWithConcurrency(
+      this.providers,
+      this.maxProviderConcurrency,
+      (provider) => provider.search(normalizedQuery, perProvider)
     );
     const records = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     if (records.length === 0 && settled.every((result) => result.status === "rejected")) {
@@ -64,6 +71,7 @@ export class ResearchService {
   }
 
   async fetch(id: string): Promise<FetchResponse> {
+    if (id.length > 2_048) throw new Error("The article identifier is too long.");
     const identifier = parseIdentifier(id);
     const firstPass = await this.fetchFromProviders(identifier);
     if (firstPass.length === 0) throw new Error(`No article was found for ${id}.`);
@@ -104,11 +112,45 @@ export class ResearchService {
   }
 
   private async fetchFromProviders(identifier: Parameters<ResearchProvider["fetch"]>[0]): Promise<ResearchRecord[]> {
-    const settled = await Promise.allSettled(this.providers.map((provider) => provider.fetch(identifier)));
+    const settled = await settleWithConcurrency(
+      this.providers,
+      this.maxProviderConcurrency,
+      (provider) => provider.fetch(identifier)
+    );
     return settled.flatMap((result) =>
       result.status === "fulfilled" && result.value ? [result.value] : []
     );
   }
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+async function settleWithConcurrency<Item, Result>(
+  items: readonly Item[],
+  concurrency: number,
+  operation: (item: Item) => Promise<Result>
+): Promise<PromiseSettledResult<Result>[]> {
+  const results = new Array<PromiseSettledResult<Result>>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        try {
+          results[index] = { status: "fulfilled", value: await operation(items[index]!) };
+        } catch (reason) {
+          results[index] = { status: "rejected", reason };
+        }
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 function hasStableIdentifier(record: ResearchRecord): boolean {

@@ -19,6 +19,25 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV"
+    },
+    {
+      "binding": "USER_DATA_KV"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "MCP_ACCOUNT_RATE_LIMITER",
+      "namespace_id": "48101",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "USAGE_ANALYTICS",
+      "dataset": "oit_medical_research_usage"
     }
   ],
   "env": {
@@ -32,6 +51,25 @@
       "kv_namespaces": [
         {
           "binding": "OAUTH_KV"
+        },
+        {
+          "binding": "USER_DATA_KV"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "MCP_ACCOUNT_RATE_LIMITER",
+          "namespace_id": "48102",
+          "simple": {
+            "limit": 30,
+            "period": 60
+          }
+        }
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "USAGE_ANALYTICS",
+          "dataset": "oit_medical_research_usage_staging"
         }
       ]
     }

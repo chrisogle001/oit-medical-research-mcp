@@ -50,7 +50,7 @@ npx wrangler login
 npm run deploy:cloudflare
 ```
 
-The first deployment creates the OAuth KV binding and reveals the Worker URL. Create a GitHub OAuth App with `https://<your-worker>/callback` as its callback, then store `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and a random `COOKIE_ENCRYPTION_KEY` of at least 32 characters with `wrangler secret put`. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
+The first deployment creates separate OAuth and encrypted-user-settings KV bindings and reveals the Worker URL. Create a GitHub OAuth App with `https://<your-worker>/callback` as its callback, then store `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, a random `COOKIE_ENCRYPTION_KEY`, and a different random `USER_DATA_ENCRYPTION_KEY` with `wrangler secret put`. Both random secrets must contain at least 32 characters. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
 
 Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent and GitHub sign-in flow.
 
@@ -58,9 +58,9 @@ For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as c
 
 ## Configuration and privacy
 
-Credentials are read only from the local process environment or Cloudflare secrets. They are never accepted as MCP tool arguments. The server does not log research queries, article text, or credentials. Cloudflare invocation logging can record request metadata, but this application emits no raw-query logs.
+Credentials are read only from the local process environment, Cloudflare secrets, or the hosted account page. They are never accepted as MCP tool arguments. A hosted user's optional NCBI key is encrypted with AES-GCM before it reaches KV and is never displayed again. The server does not log research queries, article identifiers, article text, GitHub names, or credentials. Hosted usage counters contain only a keyed account pseudonym, tool category, outcome, duration, and status.
 
-See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), and [Cloudflare deployment](docs/CLOUDFLARE.md).
+See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), [Threat model](docs/THREAT_MODEL.md), and [Cloudflare deployment](docs/CLOUDFLARE.md).
 
 ## Development checks
 
@@ -80,4 +80,4 @@ This checks targeted searches and a stable cross-provider article through PubMed
 
 ## Status
 
-The shared foundation, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, and account access-revocation page are implemented. Encrypted per-user provider-key settings, rate limits, and the remaining hosted-service controls are the next product layer.
+The shared foundation, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.

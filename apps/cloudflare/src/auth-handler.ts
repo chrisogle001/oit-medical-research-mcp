@@ -27,6 +27,12 @@ import {
   validateCsrf,
   validateOAuthStateCookie
 } from "./security.js";
+import {
+  deleteUserProviderSettings,
+  normalizeNcbiApiKey,
+  readUserProviderSettings,
+  saveUserProviderSettings
+} from "./user-data.js";
 
 const MAX_FORM_BYTES = 16_384;
 const RESEARCH_SCOPE = "mcp:research";
@@ -56,7 +62,8 @@ export const authHandler = {
       return Response.json({ status: "ok", service: "OIT - Medical Research MCP" });
     }
     if (request.method === "GET" && url.pathname === "/") {
-      return renderHome(url.origin);
+      const notice = url.searchParams.get("notice") || undefined;
+      return renderHome(url.origin, notice);
     }
     if (request.method === "GET" && url.pathname === "/authorize") {
       return beginClientAuthorization(request, oauthEnv);
@@ -75,6 +82,12 @@ export const authHandler = {
     }
     if (request.method === "POST" && url.pathname === "/account/grants/revoke") {
       return revokeGrant(request, oauthEnv);
+    }
+    if (request.method === "POST" && url.pathname === "/account/settings/ncbi") {
+      return updateNcbiSettings(request, oauthEnv);
+    }
+    if (request.method === "POST" && url.pathname === "/account/delete") {
+      return deleteAccount(request, oauthEnv);
     }
     if (request.method === "POST" && url.pathname === "/logout") {
       return logout(request, oauthEnv);
@@ -204,10 +217,13 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
     env
   );
   if (!tokenResult.ok) {
-    console.warn("GitHub OAuth token exchange failed", {
-      reason: tokenResult.reason,
-      ...(tokenResult.status ? { status: tokenResult.status } : {})
-    });
+    console.warn(
+      JSON.stringify({
+        event: "github_oauth_token_exchange_failed",
+        reason: tokenResult.reason,
+        ...(tokenResult.status ? { status: tokenResult.status } : {})
+      })
+    );
     return renderError(
       "GitHub sign-in failed",
       githubOAuthFailureMessage(tokenResult.reason),
@@ -249,16 +265,152 @@ async function showAccount(request: Request, env: OAuthEnv): Promise<Response> {
     return response;
   }
   const grants = await env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 50 });
+  let ncbiApiKeyConfigured: boolean;
+  try {
+    const settings = await readUserProviderSettings(
+      env.USER_DATA_KV,
+      session.userId,
+      env.USER_DATA_ENCRYPTION_KEY
+    );
+    ncbiApiKeyConfigured = Boolean(settings?.ncbiApiKey);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "provider_settings_read_failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      })
+    );
+    return renderError(
+      "Settings unavailable",
+      "Your encrypted provider settings could not be read. Please contact the server operator.",
+      503
+    );
+  }
   const csrfToken = randomToken();
   const notice = new URL(request.url).searchParams.get("notice") || undefined;
   const response = renderAccount({
     user: session,
     grants: grants.items,
     csrfToken,
+    ncbiApiKeyConfigured,
     ...(notice ? { notice } : {})
   });
   response.headers.append("Set-Cookie", createCsrfCookie(csrfToken));
   response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+async function updateNcbiSettings(request: Request, env: OAuthEnv): Promise<Response> {
+  const session = await requireSession(request, env);
+  if (session instanceof Response) return session;
+  const form = await readSmallForm(request);
+  if (!form) return renderError("Invalid request", "The submitted form was invalid or too large.", 413);
+  const csrfToken = form.get("csrf_token");
+  const action = form.get("action");
+  if (typeof csrfToken !== "string" || !(await validateCsrf(request, csrfToken))) {
+    return renderError("Request expired", "Reload the account page and try again.");
+  }
+
+  if (action === "clear") {
+    try {
+      await deleteUserProviderSettings(
+        env.USER_DATA_KV,
+        session.userId,
+        env.USER_DATA_ENCRYPTION_KEY
+      );
+    } catch {
+      console.error(JSON.stringify({ event: "provider_settings_delete_failed" }));
+      return renderError(
+        "Settings unavailable",
+        "The personal NCBI API key could not be removed. Please try again.",
+        503
+      );
+    }
+    return accountRedirect(request, "Personal NCBI API key removed.");
+  }
+  const apiKey = form.get("api_key");
+  const normalized = typeof apiKey === "string" ? normalizeNcbiApiKey(apiKey) : null;
+  if (action !== "save" || !normalized) {
+    return renderError(
+      "Invalid NCBI API key",
+      "Enter an API key containing 8–128 letters, numbers, hyphens, or underscores."
+    );
+  }
+  try {
+    await saveUserProviderSettings(
+      env.USER_DATA_KV,
+      session.userId,
+      env.USER_DATA_ENCRYPTION_KEY,
+      { ncbiApiKey: normalized }
+    );
+  } catch {
+    console.error(JSON.stringify({ event: "provider_settings_save_failed" }));
+    return renderError(
+      "Settings unavailable",
+      "The personal NCBI API key could not be saved. Please try again.",
+      503
+    );
+  }
+  return accountRedirect(request, "Personal NCBI API key saved securely.");
+}
+
+async function deleteAccount(request: Request, env: OAuthEnv): Promise<Response> {
+  const session = await requireSession(request, env);
+  if (session instanceof Response) return session;
+  const form = await readSmallForm(request);
+  if (!form) return renderError("Invalid request", "The submitted form was invalid or too large.", 413);
+  const csrfToken = form.get("csrf_token");
+  const confirmation = form.get("confirmation");
+  if (typeof csrfToken !== "string" || !(await validateCsrf(request, csrfToken))) {
+    return renderError("Request expired", "Reload the account page and try again.");
+  }
+  if (confirmation !== session.login) {
+    return renderError(
+      "Account deletion not confirmed",
+      `Type ${session.login} exactly to delete your hosted account data.`
+    );
+  }
+
+  try {
+    const grants = await env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 10 });
+    if (grants.cursor) {
+      return renderError(
+        "Too many connected clients",
+        "Revoke some connected MCP clients from the account page, then try account deletion again.",
+        409
+      );
+    }
+    for (const grant of grants.items) {
+      await env.OAUTH_PROVIDER.revokeGrant(grant.id, session.userId);
+    }
+    await deleteUserProviderSettings(
+      env.USER_DATA_KV,
+      session.userId,
+      env.USER_DATA_ENCRYPTION_KEY
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "account_deletion_failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      })
+    );
+    return renderError(
+      "Account deletion incomplete",
+      "The server could not finish deleting your data. No success was recorded; please try again.",
+      503
+    );
+  }
+
+  const response = redirectResponse(
+    new URL(
+      "/?notice=Your%20hosted%20account%20data%20and%20MCP%20grants%20were%20deleted.",
+      request.url
+    ).toString(),
+    303
+  );
+  response.headers.append("Set-Cookie", clearSessionCookie());
+  response.headers.append("Set-Cookie", clearCsrfCookie());
   return response;
 }
 
@@ -450,13 +602,33 @@ function redirectResponse(location: string, status = 302): Response {
 }
 
 function validateConfiguration(env: OAuthEnv): Response | null {
-  if (!env.OAUTH_KV || !env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+  if (
+    !env.OAUTH_KV ||
+    !env.USER_DATA_KV ||
+    !env.GITHUB_CLIENT_ID ||
+    !env.GITHUB_CLIENT_SECRET
+  ) {
     return renderError("Sign-in not configured", "The server owner has not finished OAuth setup.", 503);
   }
   if (!env.COOKIE_ENCRYPTION_KEY || env.COOKIE_ENCRYPTION_KEY.length < 32) {
     return renderError("Sign-in not configured", "The server session secret is missing or too short.", 503);
   }
+  if (!env.USER_DATA_ENCRYPTION_KEY || env.USER_DATA_ENCRYPTION_KEY.length < 32) {
+    return renderError(
+      "Sign-in not configured",
+      "The encrypted user-settings secret is missing or too short.",
+      503
+    );
+  }
   return null;
+}
+
+function accountRedirect(request: Request, notice: string): Response {
+  const destination = new URL("/account", request.url);
+  destination.searchParams.set("notice", notice);
+  const response = redirectResponse(destination.toString(), 303);
+  response.headers.append("Set-Cookie", clearCsrfCookie());
+  return response;
 }
 
 async function readSmallForm(request: Request): Promise<URLSearchParams | null> {

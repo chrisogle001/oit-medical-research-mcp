@@ -74,4 +74,32 @@ describe("ResearchService", () => {
       providers: ["europe-pmc", "pubmed"]
     });
   });
+
+  it("bounds concurrent provider operations", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const providers = Array.from({ length: 6 }, (_, index): ResearchProvider => ({
+      name: "pubmed",
+      async search() {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return [
+          {
+            title: `Study ${index}`,
+            identifiers: { pmid: String(1_000 + index) },
+            providers: ["pubmed"]
+          }
+        ];
+      },
+      async fetch() {
+        return null;
+      }
+    }));
+
+    const service = new ResearchService({ providers, maxProviderConcurrency: 2 });
+    await service.search("bounded provider test");
+    expect(maximumActive).toBe(2);
+  });
 });

@@ -1,17 +1,46 @@
 import { describe, expect, it } from "vitest";
 import worker, { mcpApiHandler } from "../apps/cloudflare/src/index.js";
 
+const authProps = { userId: "42", login: "researcher", displayName: "Researcher" };
 const context = {
   waitUntil() {},
   passThroughOnException() {},
-  props: {}
+  props: authProps,
+  [Symbol.for("cloudflare.workers-oauth-provider.verified-context.v1")]: {
+    version: 1,
+    token: "test-access-token",
+    clientId: "test-client",
+    scopes: ["mcp:research"],
+    props: authProps
+  }
 } as unknown as ExecutionContext;
+
+const userData = new Map<string, string>();
 
 type WorkerRequest = Parameters<typeof worker.fetch>[0];
 type WorkerEnv = Parameters<typeof worker.fetch>[1];
 
 function testEnv(values: Partial<WorkerEnv> = {}): WorkerEnv {
-  return values as WorkerEnv;
+  return {
+    USER_DATA_KV: {
+      get: async (key: string) => userData.get(key) ?? null,
+      put: async (key: string, value: string) => {
+        userData.set(key, value);
+      },
+      delete: async (key: string) => {
+        userData.delete(key);
+      }
+    } as unknown as KVNamespace,
+    USER_DATA_ENCRYPTION_KEY:
+      "worker-test-user-data-encryption-key-that-is-long-enough",
+    MCP_ACCOUNT_RATE_LIMITER: {
+      limit: async () => ({ success: true })
+    } as RateLimit,
+    USAGE_ANALYTICS: {
+      writeDataPoint() {}
+    },
+    ...values
+  } as WorkerEnv;
 }
 
 function fetchWorker(request: Request, env = testEnv()): Promise<Response> {
@@ -85,5 +114,59 @@ describe("Cloudflare Worker boundary", () => {
     expect(payload).toBeTruthy();
     const result = JSON.parse(payload!) as { result?: { serverInfo?: { name?: string } } };
     expect(result.result?.serverInfo?.name).toBe("OIT - Medical Research MCP");
+  });
+
+  it("rate limits a research tool call without recording its query", async () => {
+    const points: AnalyticsEngineDataPoint[] = [];
+    const query = "private medical research phrase";
+    const response = await mcpApiHandler.fetch(
+      new Request("https://example.workers.dev/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "search", arguments: { query } }
+        })
+      }) as WorkerRequest,
+      testEnv({
+        MCP_ACCOUNT_RATE_LIMITER: {
+          limit: async () => ({ success: false })
+        } as RateLimit,
+        USAGE_ANALYTICS: {
+          writeDataPoint(point) {
+            if (point) points.push(point);
+          }
+        }
+      }),
+      context
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(points).toHaveLength(1);
+    expect(JSON.stringify(points[0])).not.toContain(query);
+    expect(points[0]?.blobs).toEqual(["mcp_tool_call", "search", "rate_limited"]);
+  });
+
+  it("rejects an OAuth token without the medical research scope", async () => {
+    const unscopedContext = {
+      waitUntil() {},
+      passThroughOnException() {},
+      props: authProps,
+      [Symbol.for("cloudflare.workers-oauth-provider.verified-context.v1")]: {
+        version: 1,
+        token: "unscoped-access-token",
+        clientId: "test-client",
+        scopes: [],
+        props: authProps
+      }
+    } as unknown as ExecutionContext;
+    const response = await mcpApiHandler.fetch(
+      new Request("https://example.workers.dev/mcp", { method: "GET" }) as WorkerRequest,
+      testEnv(),
+      unscopedContext
+    );
+    expect(response.status).toBe(403);
   });
 });

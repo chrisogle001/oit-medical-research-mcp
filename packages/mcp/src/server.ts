@@ -3,11 +3,19 @@ import { ResearchService, type ResearchServiceOptions } from "@oit-medical-resea
 import { z } from "zod";
 
 const SearchInput = z.object({
-  query: z.string().min(2).describe("A natural-language or keyword medical literature query.")
+  query: z
+    .string()
+    .min(2)
+    .max(1_000)
+    .describe("A natural-language or keyword medical literature query.")
 });
 
 const FetchInput = z.object({
-  id: z.string().min(1).describe("A search result ID, PMID, PMCID, DOI, or supported article URL.")
+  id: z
+    .string()
+    .min(1)
+    .max(2_048)
+    .describe("A search result ID, PMID, PMCID, DOI, or supported article URL.")
 });
 
 export function createMedicalResearchMcpServer(options: ResearchServiceOptions = {}): McpServer {

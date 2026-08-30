@@ -15,6 +15,24 @@ export interface AuthenticatedUser {
   avatarUrl?: string;
 }
 
+export function parseAuthenticatedUser(value: unknown): AuthenticatedUser | null {
+  if (
+    !isRecord(value) ||
+    typeof value.userId !== "string" ||
+    typeof value.login !== "string" ||
+    typeof value.displayName !== "string" ||
+    (value.avatarUrl !== undefined && typeof value.avatarUrl !== "string")
+  ) {
+    return null;
+  }
+  return {
+    userId: value.userId,
+    login: value.login,
+    displayName: value.displayName,
+    ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {})
+  };
+}
+
 interface SessionPayload extends AuthenticatedUser {
   expiresAt: number;
 }
@@ -219,11 +237,8 @@ export async function timingSafeStringEqual(left: string, right: string): Promis
 
 function isSessionPayload(value: unknown): value is SessionPayload {
   return (
+    parseAuthenticatedUser(value) !== null &&
     isRecord(value) &&
-    typeof value.userId === "string" &&
-    typeof value.login === "string" &&
-    typeof value.displayName === "string" &&
-    (value.avatarUrl === undefined || typeof value.avatarUrl === "string") &&
     typeof value.expiresAt === "number"
   );
 }

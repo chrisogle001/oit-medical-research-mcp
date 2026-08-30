@@ -3,6 +3,7 @@
 GITHUB_CLIENT_ID=replace-with-your-github-oauth-client-id
 GITHUB_CLIENT_SECRET=replace-with-your-github-oauth-client-secret
 COOKIE_ENCRYPTION_KEY=replace-with-at-least-32-random-characters
+USER_DATA_ENCRYPTION_KEY=replace-with-a-different-32-character-random-secret
 NCBI_API_KEY=
 ALLOWED_HOSTNAMES=
 ALLOWED_ORIGIN_HOSTNAMES=

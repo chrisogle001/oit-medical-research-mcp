@@ -73,4 +73,5 @@ export interface ResearchServiceOptions {
   providers?: ResearchProvider[];
   maxResults?: number;
   maxTextCharacters?: number;
+  maxProviderConcurrency?: number;
 }

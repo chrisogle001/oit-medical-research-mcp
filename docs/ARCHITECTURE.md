@@ -14,6 +14,10 @@
 MCP client
   ├─ stdio → apps/local
   └─ HTTPS → apps/cloudflare → OAuth 2.1 + consent
+                    │             │
+                    │             ├─ account rate limiter
+                    │             ├─ encrypted user settings KV
+                    │             └─ pseudonymous usage analytics
                     │
                     ▼
              packages/mcp
@@ -38,4 +42,8 @@ The resolver merges independent provider records by DOI, PMID, PMCID, and normal
 
 The hosted Worker acts as an OAuth 2.1 authorization server for MCP clients and uses GitHub only to establish user identity. GitHub access tokens are discarded after the profile lookup. OAuth grants, hashed tokens, and encrypted MCP authorization properties live in the `OAUTH_KV` binding. Short-lived consent and GitHub flow state stay browser-bound in signed secure cookies, while the account page uses a signed session and lets a user list and revoke client grants.
 
-The next product layer adds encrypted per-user provider credentials, per-account rate limits, deletion controls, and audit events that exclude research queries and article content.
+Each protected MCP request receives verified OAuth properties through the execution context. Research tool calls are keyed to a one-way HMAC account pseudonym, checked against the `MCP_ACCOUNT_RATE_LIMITER` binding, and counted in `USAGE_ANALYTICS`. Analytics fields contain only the tool category, outcome, duration, and HTTP status. Query text, article identifiers, article content, GitHub handles, and raw user IDs are excluded.
+
+Optional personal provider settings live in a separate `USER_DATA_KV` namespace. The KV key is an HMAC pseudonym and the value is an AES-GCM envelope with the storage key bound as authenticated additional data. A personal NCBI key overrides the operator-wide NCBI key only for that account and request.
+
+The shared research service schedules at most three provider operations concurrently. This stays below the Workers simultaneous outbound-connection limit while allowing one provider operation to make an additional sequential request when needed.
