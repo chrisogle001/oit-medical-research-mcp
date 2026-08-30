@@ -1,6 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/server";
-import { ResearchService, type ResearchServiceOptions } from "@oit-medical-research/core";
+import {
+  ResearchService,
+  type FetchResponse,
+  type ResearchServiceOptions
+} from "@oit-medical-research/core";
 import { z } from "zod";
+
+const MAX_FETCH_TEXT_CHARACTERS = 120_000;
 
 const SearchInput = z.object({
   query: z
@@ -45,7 +51,77 @@ const FetchInput = z.object({
     .string()
     .min(1)
     .max(2_048)
-    .describe("A search result ID, PMID, PMCID, DOI, or supported article URL.")
+    .describe("A search result ID, PMID, PMCID, DOI, or supported article URL."),
+  includeText: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether to include article text. Defaults to true. Set false for a compact metadata-only response."
+    ),
+  textLimit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_FETCH_TEXT_CHARACTERS)
+    .optional()
+    .describe(
+      "Maximum article-text characters to return when includeText is true. Defaults to the server limit."
+    )
+});
+
+const ProviderNameOutput = z.enum(["pubmed", "europe-pmc", "crossref", "unpaywall"]);
+const FullTextStatusOutput = z.enum([
+  "retrieved",
+  "repository-indexed",
+  "open-access-location",
+  "not-indicated"
+]);
+const ArticleIdentifiersOutput = z.object({
+  pmid: z.string().optional(),
+  pmcid: z.string().optional(),
+  doi: z.string().optional(),
+  epmcSource: z.string().optional(),
+  epmcId: z.string().optional()
+});
+const ProviderDiagnosticsOutput = z.object({
+  attempted: z.array(ProviderNameOutput),
+  contributed: z.array(ProviderNameOutput),
+  noRecord: z.array(ProviderNameOutput),
+  failed: z.array(ProviderNameOutput),
+  partialFailure: z.boolean()
+});
+const FetchMetadataOutput = z.object({
+  identifiers: ArticleIdentifiersOutput,
+  authors: z.array(z.string()).optional(),
+  publicationTypes: z.array(z.string()).optional(),
+  isPreprint: z.boolean(),
+  isRetracted: z.boolean(),
+  statusWarnings: z.array(z.string()).optional(),
+  journal: z.string().optional(),
+  publicationDate: z.string().optional(),
+  license: z.string().optional(),
+  isOpenAccess: z.boolean().optional(),
+  fullTextUrl: z.string().optional(),
+  pdfUrl: z.string().optional(),
+  citationCount: z.number().optional(),
+  providers: z.array(ProviderNameOutput),
+  retrievedAt: z.string(),
+  textType: z.enum(["lawful-full-text", "abstract", "metadata"]),
+  fullTextStatus: FullTextStatusOutput
+});
+const FetchOutput = z.object({
+  id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  metadata: FetchMetadataOutput,
+  providerDiagnostics: ProviderDiagnosticsOutput,
+  textInfo: z.object({
+    included: z.boolean(),
+    availableCharacters: z.number().int().nonnegative(),
+    returnedCharacters: z.number().int().nonnegative(),
+    truncated: z.boolean()
+  }),
+  text: z.string().optional()
 });
 
 const CitationsInput = z.object({
@@ -99,7 +175,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.1"
+    version: "0.6.2"
   });
 
   server.registerTool(
@@ -173,8 +249,9 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     {
       title: "Fetch a medical research article",
       description:
-        "Fetch normalized metadata, abstract, lawful open full text when available, identifiers, reconciled authors, DOI-based Crossref and Unpaywall enrichment, provider contribution diagnostics, license, access links, explicit full-text retrieval status, publication types, and preprint or retraction warnings for one article.",
+        "Fetch one medical research article with metadata and provider diagnostics before optional article text. Returns normalized identifiers, reconciled authors, DOI-based Crossref and Unpaywall enrichment, license, access links, explicit full-text retrieval status, publication types, and preprint or retraction warnings. Set includeText to false for a compact metadata-only response, or textLimit to bound the returned abstract or lawful open full text.",
       inputSchema: FetchInput,
+      outputSchema: FetchOutput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -182,10 +259,32 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
         openWorldHint: true
       }
     },
-    async ({ id }) => toolResult(() => service.fetch(id))
+    async ({ id, includeText, textLimit }) =>
+      fetchToolResult(() =>
+        service.fetch(id, {
+          ...(includeText !== undefined ? { includeText } : {}),
+          ...(textLimit !== undefined ? { textLimit } : {})
+        })
+      )
   );
 
   return server;
+}
+
+async function fetchToolResult(operation: () => Promise<FetchResponse>) {
+  try {
+    const value = await operation();
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(value) }],
+      structuredContent: value
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The research request failed.";
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }]
+    };
+  }
 }
 
 async function toolResult<T>(operation: () => Promise<T>) {

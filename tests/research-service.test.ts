@@ -344,6 +344,21 @@ describe("ResearchService", () => {
     const result = await service.fetch("pmid:123");
     expect(result.id).toBe("pmcid:PMC456");
     expect(result.text).toBe("Lawfully available full text.");
+    expect(Object.keys(result)).toEqual([
+      "id",
+      "title",
+      "url",
+      "metadata",
+      "providerDiagnostics",
+      "textInfo",
+      "text"
+    ]);
+    expect(result.textInfo).toEqual({
+      included: true,
+      availableCharacters: 29,
+      returnedCharacters: 29,
+      truncated: false
+    });
     expect(result.metadata).toMatchObject({
       isPreprint: false,
       isRetracted: false,
@@ -351,6 +366,34 @@ describe("ResearchService", () => {
       license: "CC BY",
       textType: "lawful-full-text",
       providers: ["europe-pmc", "pubmed"]
+    });
+  });
+
+  it("supports compact metadata-only and bounded-text article responses", async () => {
+    const service = new ResearchService({ providers: [pubmed, europePmc] });
+
+    const metadataOnly = await service.fetch("pmid:123", { includeText: false });
+    expect(metadataOnly).not.toHaveProperty("text");
+    expect(metadataOnly.metadata).toMatchObject({
+      identifiers: { pmid: "123", pmcid: "PMC456", doi: "10.1000/trial" },
+      textType: "lawful-full-text",
+      fullTextStatus: "retrieved"
+    });
+    expect(metadataOnly.providerDiagnostics.contributed).toEqual(["europe-pmc", "pubmed"]);
+    expect(metadataOnly.textInfo).toEqual({
+      included: false,
+      availableCharacters: 29,
+      returnedCharacters: 0,
+      truncated: false
+    });
+
+    const bounded = await service.fetch("pmid:123", { textLimit: 10 });
+    expect(bounded.text).toBe("Lawfully a");
+    expect(bounded.textInfo).toEqual({
+      included: true,
+      availableCharacters: 29,
+      returnedCharacters: 10,
+      truncated: true
     });
   });
 

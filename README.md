@@ -12,7 +12,7 @@ A portable, read-only MCP server for searching medical literature and retrieving
 The public MCP interface provides four interoperable, read-only tools:
 
 - `search({ query, limit?, fromYear?, toYear?, journals?, fullTextOnly? })` returns up to the requested number of deduplicated results (subject to the server cap). Each result includes its stable ID, title, URL, identifiers, reconciled authors, contributing providers, explicit full-text status, publication types, preprint and retraction flags, and available journal, date, open-access, and citation metadata.
-- `fetch({ id })` returns normalized text, metadata, identifiers, reconciled authors, DOI-follow-up enrichment, provider diagnostics, license, access links, explicit full-text retrieval status, publication types, and preprint and retraction flags.
+- `fetch({ id, includeText?, textLimit? })` returns metadata-first structured output with normalized identifiers, reconciled authors, DOI-follow-up enrichment, provider diagnostics, license, access links, explicit full-text retrieval status, publication types, and preprint and retraction flags. Text remains included by default; set `includeText: false` for a compact metadata-only response or use `textLimit` to request a bounded excerpt.
 - `citations({ id, direction, limit? })` explores Europe PMC's open citation network. Use `direction: "references"` for papers cited by the article or `direction: "citedBy"` for papers that cite it. Results use the same stable, fetchable IDs as search.
 - `annotations({ id, limit?, types?, sections?, providers? })` retrieves bounded, text-mined biomedical mentions for one article through Europe PMC. Results include the mentioned text, surrounding context, article section, annotation provider, and links to recognized database entities when available.
 
@@ -20,7 +20,7 @@ Search filters are optional and work the same way locally and on Cloudflare. `jo
 
 Every tool response includes `providerDiagnostics`. `attempted` identifies the configured sources consulted, `contributed` identifies sources present in the normalized result, `noRecord` identifies sources that completed without a usable contribution, and `failed` reports safe provider names when one or more upstream calls failed. Raw upstream errors are not exposed. A partial provider failure does not discard useful results from healthy sources.
 
-`fullTextAvailable` remains for compatibility and means that the record has evidence of a retrievable location. The more precise `fullTextStatus` distinguishes `retrieved`, `repository-indexed`, `open-access-location`, and `not-indicated`. On `fetch`, `metadata.textType` remains authoritative about whether the current response contains lawful full text, an abstract, or metadata only. Europe PMC identifiers, PDF links, and licenses remain optional because upstream records do not supply them uniformly.
+`fullTextAvailable` remains for compatibility and means that the record has evidence of a retrievable location. The more precise `fullTextStatus` distinguishes `retrieved`, `repository-indexed`, `open-access-location`, and `not-indicated`. On `fetch`, `metadata.textType` identifies the best resolved source as lawful full text, an abstract, or metadata, while `textInfo` states whether text was included, how much was returned, and whether it was truncated. Europe PMC identifiers, PDF links, and licenses remain optional because upstream records do not supply them uniformly.
 
 This is a research retrieval tool, not medical advice. It does not bypass paywalls.
 

@@ -11,6 +11,7 @@ import type {
   CitationDirection,
   CitationResponse,
   FetchResponse,
+  FetchOptions,
   FullTextStatus,
   ProviderContext,
   ProviderDiagnostics,
@@ -185,7 +186,7 @@ export class ResearchService {
     };
   }
 
-  async fetch(id: string): Promise<FetchResponse> {
+  async fetch(id: string, options: FetchOptions = {}): Promise<FetchResponse> {
     if (id.length > 2_048) throw new Error("The article identifier is too long.");
     const identifier = parseIdentifier(id);
     const records: ResearchRecord[] = [];
@@ -226,10 +227,10 @@ export class ResearchService {
       merged = mergeRecords(records);
     }
 
-    const text = (merged.fullText ?? merged.abstract ?? metadataSummary(merged)).slice(
-      0,
-      this.maxTextCharacters
-    );
+    const availableText = merged.fullText ?? merged.abstract ?? metadataSummary(merged);
+    const includeText = options.includeText !== false;
+    const textLimit = normalizeTextLimit(options.textLimit, this.maxTextCharacters);
+    const text = includeText ? availableText.slice(0, textLimit) : undefined;
     const resolvedId = canonicalId(merged);
     const url = canonicalUrl(merged);
     const statusWarnings = researchStatusWarnings(merged);
@@ -237,7 +238,6 @@ export class ResearchService {
     return {
       id: resolvedId,
       title: merged.title,
-      text,
       url,
       metadata: {
         identifiers: merged.identifiers,
@@ -258,7 +258,14 @@ export class ResearchService {
         textType: merged.fullText ? "lawful-full-text" : merged.abstract ? "abstract" : "metadata",
         fullTextStatus: fullTextStatus(merged)
       },
-      providerDiagnostics: buildProviderDiagnostics(attempts, merged.providers)
+      providerDiagnostics: buildProviderDiagnostics(attempts, merged.providers),
+      textInfo: {
+        included: includeText,
+        availableCharacters: availableText.length,
+        returnedCharacters: text?.length ?? 0,
+        truncated: includeText && availableText.length > textLimit
+      },
+      ...(text !== undefined ? { text } : {})
     };
   }
 
@@ -275,6 +282,14 @@ export class ResearchService {
 
 function positiveInteger(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function normalizeTextLimit(value: number | undefined, maximum: number): number {
+  if (value === undefined) return maximum;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error("textLimit must be a positive integer.");
+  }
+  return Math.min(value, maximum);
 }
 
 function normalizeSearchFilters(filters: SearchFilters): SearchFilters {

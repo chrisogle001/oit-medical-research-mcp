@@ -35,6 +35,24 @@ try {
   if (fromYearSchema?.minimum !== 1800 || fromYearSchema.maximum !== 2100) {
     throw new Error("The search tool advertised an unstable publication-year range.");
   }
+  const fetchTool = tools.tools.find((tool) => tool.name === "fetch");
+  const fetchProperties = (
+    fetchTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  const fetchInputs = Object.keys(fetchProperties ?? {}).sort();
+  if (fetchInputs.join(",") !== "id,includeText,textLimit") {
+    throw new Error("The fetch tool did not advertise metadata-only and bounded-text inputs.");
+  }
+  const fetchOutputProperties = (
+    fetchTool?.outputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  if (
+    !fetchOutputProperties?.metadata ||
+    !fetchOutputProperties.providerDiagnostics ||
+    !fetchOutputProperties.textInfo
+  ) {
+    throw new Error("The fetch tool did not advertise its structured metadata output.");
+  }
   const citationsTool = tools.tools.find((tool) => tool.name === "citations");
   const citationProperties = (
     citationsTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
@@ -60,6 +78,7 @@ try {
         protocol: "connected",
         tools: names,
         searchInputs: expectedSearchInputs,
+        fetchInputs,
         citationDirections: directionSchema.enum,
         annotationInputs
       },

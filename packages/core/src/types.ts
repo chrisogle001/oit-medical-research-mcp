@@ -134,10 +134,23 @@ export interface AnnotationResponse {
 export interface FetchResponse {
   id: string;
   title: string;
-  text: string;
   url: string;
   metadata: FetchMetadata;
   providerDiagnostics: ProviderDiagnostics;
+  textInfo: FetchTextInfo;
+  text?: string;
+}
+
+export interface FetchTextInfo {
+  included: boolean;
+  availableCharacters: number;
+  returnedCharacters: number;
+  truncated: boolean;
+}
+
+export interface FetchOptions {
+  includeText?: boolean;
+  textLimit?: number;
 }
 
 export interface FetchMetadata {
