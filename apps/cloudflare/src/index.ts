@@ -127,6 +127,9 @@ const worker = {
     if (allowedHostnames && !allowedHostnames.includes(url.hostname)) {
       return Response.json({ error: "Unrecognized host." }, { status: 421 });
     }
+    const tokenAttempt = url.pathname === "/oauth/token"
+      ? await describeOAuthTokenRequest(request)
+      : undefined;
 
     const origin = url.origin;
     const provider = new OAuthProvider<Env>({
@@ -139,7 +142,9 @@ const worker = {
       clientRegistrationTTL: 2_592_000,
       accessTokenTTL: 3_600,
       refreshTokenTTL: 2_592_000,
-      clientIdMetadataDocumentEnabled: true,
+      // ChatGPT's hosted CIMD callback currently stalls before token exchange.
+      // Keep the standards-compliant DCR endpoint as the interoperable client path.
+      clientIdMetadataDocumentEnabled: false,
       allowPlainPKCE: false,
       scopesSupported: [RESEARCH_SCOPE],
       resourceMetadata: {
@@ -148,10 +153,32 @@ const worker = {
         scopes_supported: [RESEARCH_SCOPE],
         bearer_methods_supported: ["header"],
         resource_name: "OIT Medical Research MCP"
+      },
+      onError(error) {
+        console.warn(
+          JSON.stringify({
+            event: "oauth_provider_error",
+            path: error.request ? new URL(error.request.url).pathname : undefined,
+            code: error.code,
+            status: error.status,
+            internalCategory: error.internal?.category,
+            internalReason: error.internal?.reason
+          })
+        );
       }
     });
     try {
-      return await provider.fetch(request, env, context);
+      const response = await provider.fetch(request, env, context);
+      if (tokenAttempt) {
+        console.info(
+          JSON.stringify({
+            event: "oauth_token_response",
+            status: response.status,
+            ...tokenAttempt
+          })
+        );
+      }
+      return response;
     } catch (error) {
       console.error(
         JSON.stringify({
@@ -176,4 +203,36 @@ function list(value?: string): string[] | undefined {
     .map((item) => item.trim())
     .filter(Boolean);
   return values?.length ? values : undefined;
+}
+
+async function describeOAuthTokenRequest(request: Request): Promise<{
+  authMethod: "none" | "client_secret_basic" | "private_key_jwt";
+  clientKind: "cimd" | "registered" | "missing";
+  grantType: string;
+  hasResource: boolean;
+}> {
+  try {
+    const form = await request.clone().formData();
+    const clientId = form.get("client_id");
+    const authMethod = form.has("client_assertion")
+      ? "private_key_jwt"
+      : request.headers.has("Authorization")
+        ? "client_secret_basic"
+        : "none";
+    return {
+      authMethod,
+      clientKind: typeof clientId === "string"
+        ? clientId.startsWith("https://") ? "cimd" : "registered"
+        : "missing",
+      grantType: String(form.get("grant_type") || "missing"),
+      hasResource: form.has("resource")
+    };
+  } catch {
+    return {
+      authMethod: request.headers.has("Authorization") ? "client_secret_basic" : "none",
+      clientKind: "missing",
+      grantType: "unreadable",
+      hasResource: false
+    };
+  }
 }

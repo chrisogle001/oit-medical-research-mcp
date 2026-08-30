@@ -2,19 +2,26 @@ import { createHash, randomBytes } from "node:crypto";
 
 const baseUrl = (process.argv[2] || process.env.MCP_BASE_URL)?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("Pass the Cloudflare Worker base URL.");
+const clientIdMetadataUrl = process.env.OAUTH_CLIENT_ID_METADATA_URL?.trim();
+const redirectUri = process.env.OAUTH_REDIRECT_URI?.trim()
+  || (clientIdMetadataUrl
+    ? "https://chatgpt.com/connector_platform_oauth_redirect"
+    : "https://client.example/callback");
 
 const metadata = await getJson<{
   authorization_endpoint: string;
   registration_endpoint: string;
   token_endpoint: string;
 }>(`${baseUrl}/.well-known/oauth-authorization-server`);
-const registration = await postJson<{ client_id: string }>(metadata.registration_endpoint, {
-  client_name: "OIT concurrent authorization smoke test",
-  redirect_uris: ["https://client.example/callback"],
-  grant_types: ["authorization_code", "refresh_token"],
-  response_types: ["code"],
-  token_endpoint_auth_method: "none"
-});
+const registration = clientIdMetadataUrl
+  ? { client_id: clientIdMetadataUrl }
+  : await postJson<{ client_id: string }>(metadata.registration_endpoint, {
+      client_name: "OIT concurrent authorization smoke test",
+      redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none"
+    });
 
 const attempts = [createAuthorizationAttempt("first"), createAuthorizationAttempt("second")];
 const expectedClientStates = attempts.map((attempt) =>
@@ -65,7 +72,7 @@ const authorizationCodes = approvals.map((response, index) => {
   const location = response.headers.get("Location");
   if (!location) throw new Error(`Concurrent approval ${index + 1} did not redirect to its client.`);
   const redirect = new URL(location);
-  if (`${redirect.origin}${redirect.pathname}` !== "https://client.example/callback") {
+  if (`${redirect.origin}${redirect.pathname}` !== redirectUri) {
     throw new Error(`Concurrent approval ${index + 1} redirected to an unexpected client.`);
   }
   if (redirect.searchParams.get("state") !== expectedClientStates[index]) {
@@ -100,6 +107,7 @@ console.log(
   JSON.stringify(
     {
       endpoint: baseUrl,
+      clientRegistration: clientIdMetadataUrl ? "cimd" : "dcr",
       concurrentAuthorizationPages: "isolated",
       concurrentConsentApprovals: "accepted",
       concurrentPseudonymousAuthorizations: "isolated",
@@ -117,7 +125,7 @@ function createAuthorizationAttempt(label: string): { url: string; verifier: str
   const url = new URL(metadata.authorization_endpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", registration.client_id);
-  url.searchParams.set("redirect_uri", "https://client.example/callback");
+  url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("scope", "mcp:research");
   url.searchParams.set("state", `${label}-${randomBytes(32).toString("base64url")}`);
   url.searchParams.set("code_challenge", challenge);
@@ -134,7 +142,7 @@ async function exchangeAuthorizationCode(code: string, verifier: string): Promis
       grant_type: "authorization_code",
       code,
       client_id: registration.client_id,
-      redirect_uri: "https://client.example/callback",
+      redirect_uri: redirectUri,
       code_verifier: verifier,
       resource: `${baseUrl}/mcp`
     })

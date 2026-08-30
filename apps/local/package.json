@@ -1,6 +1,6 @@
 {
   "name": "@oit-medical-research/local",
-  "version": "0.6.4",
+  "version": "0.6.6",
   "private": true,
   "type": "module",
   "dependencies": {

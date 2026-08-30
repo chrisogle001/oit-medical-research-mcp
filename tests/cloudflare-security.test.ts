@@ -3,7 +3,12 @@ import {
   classifyGitHubOAuthFailure,
   githubOAuthFailureMessage
 } from "../apps/cloudflare/src/auth-handler.js";
-import { escapeHtml, renderGitHubContinue, renderHome } from "../apps/cloudflare/src/html.js";
+import {
+  escapeHtml,
+  renderConsent,
+  renderGitHubContinue,
+  renderHome
+} from "../apps/cloudflare/src/html.js";
 import {
   consumeConsentRequest,
   consumeOAuthFlow,
@@ -51,6 +56,29 @@ describe("Cloudflare OAuth security helpers", () => {
     );
     expect(policy).toContain("form-action 'self'");
     expect(policy).not.toContain("form-action 'self' https://github.com");
+    expect(policy).not.toContain("form-action *");
+  });
+
+  it("allows a consent redirect only to the validated OAuth callback origin", () => {
+    const response = renderConsent({
+      client: {
+        clientId: "chatgpt-client",
+        clientName: "ChatGPT",
+        redirectUris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+        tokenEndpointAuthMethod: "none"
+      },
+      oauthRequest: {
+        responseType: "code",
+        clientId: "chatgpt-client",
+        redirectUri: "https://chatgpt.com/connector_platform_oauth_redirect",
+        scope: ["mcp:research"],
+        state: "client-state"
+      },
+      consentState: consentStateA
+    });
+    const policy = response.headers.get("Content-Security-Policy");
+    expect(policy).toContain("form-action 'self' https://chatgpt.com");
+    expect(policy).not.toContain("connector_platform_oauth_redirect");
     expect(policy).not.toContain("form-action *");
   });
 

@@ -48,9 +48,18 @@ if (!authorizationMetadataResponse.ok) {
 const authorizationMetadata = (await authorizationMetadataResponse.json()) as {
   authorization_endpoint?: string;
   token_endpoint?: string;
+  registration_endpoint?: string;
+  client_id_metadata_document_supported?: boolean;
 };
-if (!authorizationMetadata.authorization_endpoint || !authorizationMetadata.token_endpoint) {
+if (
+  !authorizationMetadata.authorization_endpoint ||
+  !authorizationMetadata.token_endpoint ||
+  !authorizationMetadata.registration_endpoint
+) {
   throw new Error("OAuth authorization metadata is incomplete.");
+}
+if (authorizationMetadata.client_id_metadata_document_supported) {
+  throw new Error("OAuth metadata unexpectedly enabled the incompatible ChatGPT CIMD path.");
 }
 
 if (!oauthAccessToken) {
@@ -61,6 +70,7 @@ if (!oauthAccessToken) {
         health: "ok",
         anonymousAccess: "rejected",
         oauthDiscovery: "ok",
+        oauthClientRegistration: "dcr",
         authenticatedProtocol: "not run (set MCP_OAUTH_ACCESS_TOKEN)"
       },
       null,

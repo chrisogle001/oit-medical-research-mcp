@@ -79,7 +79,15 @@ export function renderConsent(options: ConsentPageOptions): Response {
         </section>
       </main>`
     ),
-    200
+    200,
+    {
+      // Chromium applies form-action to redirects after form submission. The
+      // consent form posts to this Worker and then redirects to the validated
+      // OAuth client callback, so that callback origin must be allowed too.
+      "Content-Security-Policy": consentContentSecurityPolicy(
+        options.oauthRequest.redirectUri
+      )
+    }
   );
 }
 
@@ -200,6 +208,20 @@ function htmlResponse(body: string, status = 200, extraHeaders?: HeadersInit): R
     status,
     headers: { ...RESPONSE_HEADERS, ...extraHeaders }
   });
+}
+
+function consentContentSecurityPolicy(redirectUri: string): string {
+  const formActions = ["'self'"];
+  try {
+    const redirect = new URL(redirectUri);
+    if (redirect.protocol === "https:" || redirect.protocol === "http:") {
+      formActions.push(redirect.origin);
+    }
+  } catch {
+    // parseAuthRequest validates redirectUri before renderConsent is called.
+    // Retain the restrictive default if a reconstructed request is malformed.
+  }
+  return `default-src 'none'; style-src 'unsafe-inline'; img-src https://avatars.githubusercontent.com data:; form-action ${formActions.join(" ")}; base-uri 'none'; frame-ancestors 'none'`;
 }
 
 function page(title: string, content: string): string {
