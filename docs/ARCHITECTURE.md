@@ -36,7 +36,9 @@ MCP client
 
 Search results prefer PMCID, then PMID, then DOI, because PMCID is the strongest direct signal that lawful repository full text may exist. Fetch accepts any returned ID plus common PubMed, PMC, and DOI URLs.
 
-The resolver merges independent provider records by DOI, PMID, PMCID, and normalized title. Search keeps each provider's relevance order as a fallback, then re-ranks the combined set by meaningful query-title overlap and independent-provider agreement. It returns full text only when it comes from a lawful repository endpoint. Otherwise it returns an abstract or metadata plus the best legal access location.
+The resolver merges independent provider records by DOI, PMID, PMCID, and normalized title. Search keeps each provider's relevance order as a fallback, then re-ranks the combined set by meaningful query-title overlap and independent-provider agreement. Optional publication-year, journal, and repository-full-text filters are translated into each provider's native query syntax and verified again against normalized records before results are returned. Search results expose identifiers, provider provenance, repository-full-text availability, and available bibliographic metadata so a client can assess a result before calling `fetch`.
+
+`fullTextOnly` means the article is retrievable from PMC or Europe PMC. Crossref metadata alone is not treated as proof of repository full-text availability. The resolver returns article text only when it comes from a lawful repository endpoint; otherwise `fetch` returns an abstract or metadata plus the best legal access location.
 
 ## Account and authorization layer
 

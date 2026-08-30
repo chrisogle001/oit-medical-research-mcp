@@ -40,6 +40,14 @@ export interface SearchResult {
   id: string;
   title: string;
   url: string;
+  identifiers: ArticleIdentifiers;
+  providers: ProviderName[];
+  authors?: string[];
+  journal?: string;
+  publicationDate?: string;
+  isOpenAccess?: boolean;
+  fullTextAvailable: boolean;
+  citationCount?: number;
 }
 
 export interface SearchResponse {
@@ -60,9 +68,16 @@ export interface ProviderContext {
   ncbiApiKey?: string;
 }
 
+export interface SearchFilters {
+  fromYear?: number;
+  toYear?: number;
+  journals?: string[];
+  fullTextOnly?: boolean;
+}
+
 export interface ResearchProvider {
   readonly name: ProviderName;
-  search(query: string, limit: number): Promise<ResearchRecord[]>;
+  search(query: string, limit: number, filters?: SearchFilters): Promise<ResearchRecord[]>;
   fetch(identifier: CanonicalIdentifier): Promise<ResearchRecord | null>;
 }
 

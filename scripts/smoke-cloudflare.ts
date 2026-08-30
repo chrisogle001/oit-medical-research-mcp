@@ -90,21 +90,35 @@ if (tools.join(",") !== "fetch,search") {
 const searchCall = await callMcp("tools/call", {
   name: "search",
   arguments: {
-    query: "randomized controlled trials of exercise for knee osteoarthritis published from 2020 onward",
-    limit: 3
+    query: "randomized controlled trials of exercise for knee osteoarthritis",
+    limit: 3,
+    fromYear: 2020,
+    journals: ["Trials"],
+    fullTextOnly: true
   }
 });
 const firstContent = (searchCall.result?.content as Array<{ type?: string; text?: string }> | undefined)?.[0];
 if (firstContent?.type !== "text" || !firstContent.text) {
   throw new Error("Remote search did not return MCP text content.");
 }
-const search = JSON.parse(firstContent.text) as { results?: Array<{ title?: string }> };
+const search = JSON.parse(firstContent.text) as {
+  results?: Array<{
+    title?: string;
+    journal?: string;
+    publicationDate?: string;
+    providers?: unknown;
+    fullTextAvailable?: boolean;
+  }>;
+};
 if (!search.results?.length) throw new Error("Remote search returned no literature results.");
 if (search.results.length !== 3) {
   throw new Error(`Remote search returned ${search.results.length} results; expected 3.`);
 }
 if (!search.results.every((result) => isKneeExerciseTrialTitle(result.title))) {
   throw new Error("Remote search returned one or more weakly matched titles.");
+}
+if (!search.results.every(isStructuredFilterMatch)) {
+  throw new Error("Remote search did not honor its structured filters or metadata contract.");
 }
 
 console.log(
@@ -115,7 +129,8 @@ console.log(
       anonymousAccess: "rejected",
       protocol: "connected",
       tools,
-      searchResultCount: search.results.length
+      searchResultCount: search.results.length,
+      searchFilters: { fromYear: 2020, journals: ["Trials"], fullTextOnly: true }
     },
     null,
     2
@@ -169,5 +184,20 @@ function isKneeExerciseTrialTitle(title: string | undefined): boolean {
     (normalized.includes("exercise") || normalized.includes("physical therap")) &&
     (normalized.includes("randomized") || normalized.includes("randomised")) &&
     normalized.includes("trial")
+  );
+}
+
+function isStructuredFilterMatch(result: {
+  journal?: string;
+  publicationDate?: string;
+  providers?: unknown;
+  fullTextAvailable?: boolean;
+}): boolean {
+  return (
+    result.journal?.toLowerCase() === "trials" &&
+    Number(result.publicationDate?.slice(0, 4)) >= 2020 &&
+    result.fullTextAvailable === true &&
+    Array.isArray(result.providers) &&
+    result.providers.length > 0
   );
 }

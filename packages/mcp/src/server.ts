@@ -14,7 +14,30 @@ const SearchInput = z.object({
     .min(1)
     .max(50)
     .optional()
-    .describe("Maximum number of deduplicated results to return. Defaults to the server limit.")
+    .describe("Maximum number of deduplicated results to return. Defaults to the server limit."),
+  fromYear: z
+    .number()
+    .int()
+    .min(1800)
+    .max(2100)
+    .optional()
+    .describe("Earliest publication year to include."),
+  toYear: z
+    .number()
+    .int()
+    .min(1800)
+    .max(2100)
+    .optional()
+    .describe("Latest publication year to include."),
+  journals: z
+    .array(z.string().min(1).max(200))
+    .max(5)
+    .optional()
+    .describe("Optional journal titles or common journal abbreviations to include."),
+  fullTextOnly: z
+    .boolean()
+    .optional()
+    .describe("When true, return only articles with repository full text available through PMC or Europe PMC.")
 });
 
 const FetchInput = z.object({
@@ -29,7 +52,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.1.0"
+    version: "0.2.0"
   });
 
   server.registerTool(
@@ -37,7 +60,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     {
       title: "Search medical research",
       description:
-        "Search PubMed, PubMed Central, Europe PMC, and Crossref for medical literature. Returns deduplicated stable IDs for use with fetch.",
+        "Search PubMed, PubMed Central, Europe PMC, and Crossref for medical literature. Supports publication-year, journal, and repository-full-text filters and returns deduplicated records with source metadata and stable IDs for use with fetch.",
       inputSchema: SearchInput,
       annotations: {
         readOnlyHint: true,
@@ -46,7 +69,15 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
         openWorldHint: true
       }
     },
-    async ({ query, limit }) => toolResult(() => service.search(query, limit))
+    async ({ query, limit, fromYear, toYear, journals, fullTextOnly }) =>
+      toolResult(() =>
+        service.search(query, limit, {
+          ...(fromYear !== undefined ? { fromYear } : {}),
+          ...(toYear !== undefined ? { toYear } : {}),
+          ...(journals !== undefined ? { journals } : {}),
+          ...(fullTextOnly !== undefined ? { fullTextOnly } : {})
+        })
+      )
   );
 
   server.registerTool(

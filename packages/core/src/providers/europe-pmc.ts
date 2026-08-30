@@ -5,7 +5,8 @@ import type {
   CanonicalIdentifier,
   ProviderContext,
   ResearchProvider,
-  ResearchRecord
+  ResearchRecord,
+  SearchFilters
 } from "../types.js";
 
 interface EuropePmcResult {
@@ -35,8 +36,8 @@ export class EuropePmcProvider implements ResearchProvider {
 
   constructor(private readonly context: ProviderContext) {}
 
-  async search(query: string, limit: number): Promise<ResearchRecord[]> {
-    const payload = await this.searchApi(query, limit, "lite");
+  async search(query: string, limit: number, filters: SearchFilters = {}): Promise<ResearchRecord[]> {
+    const payload = await this.searchApi(europePmcSearchQuery(query, filters), limit, "lite");
     return (payload.resultList?.result ?? []).map((result) => this.toRecord(result));
   }
 
@@ -137,4 +138,24 @@ export class EuropePmcProvider implements ResearchProvider {
       providers: [this.name]
     };
   }
+}
+
+function europePmcSearchQuery(query: string, filters: SearchFilters): string {
+  const clauses = [`(${query})`];
+  if (filters.fromYear !== undefined || filters.toYear !== undefined) {
+    const fromDate = `${filters.fromYear ?? 1800}-01-01`;
+    const toDate = `${filters.toYear ?? 2100}-12-31`;
+    clauses.push(`FIRST_PDATE:[${fromDate} TO ${toDate}]`);
+  }
+  if (filters.journals?.length) {
+    clauses.push(
+      `(${filters.journals.map((journal) => `JOURNAL:"${fieldPhrase(journal)}"`).join(" OR ")})`
+    );
+  }
+  if (filters.fullTextOnly) clauses.push("IN_PMC:Y");
+  return clauses.join(" AND ");
+}
+
+function fieldPhrase(value: string): string {
+  return value.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
 }

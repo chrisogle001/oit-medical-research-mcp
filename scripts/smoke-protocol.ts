@@ -24,7 +24,24 @@ try {
   if (names.join(",") !== "fetch,search") {
     throw new Error(`Unexpected tool catalog: ${names.join(", ")}`);
   }
-  console.log(JSON.stringify({ protocol: "connected", tools: names }, null, 2));
+  const searchTool = tools.tools.find((tool) => tool.name === "search");
+  const searchProperties = (searchTool?.inputSchema as { properties?: Record<string, unknown> } | undefined)
+    ?.properties;
+  const expectedSearchInputs = ["fromYear", "fullTextOnly", "journals", "limit", "query", "toYear"];
+  if (Object.keys(searchProperties ?? {}).sort().join(",") !== expectedSearchInputs.join(",")) {
+    throw new Error("The search tool did not advertise the expected structured-filter inputs.");
+  }
+  const fromYearSchema = searchProperties?.fromYear as { maximum?: number; minimum?: number } | undefined;
+  if (fromYearSchema?.minimum !== 1800 || fromYearSchema.maximum !== 2100) {
+    throw new Error("The search tool advertised an unstable publication-year range.");
+  }
+  console.log(
+    JSON.stringify(
+      { protocol: "connected", tools: names, searchInputs: expectedSearchInputs },
+      null,
+      2
+    )
+  );
 } finally {
   await client.close();
 }

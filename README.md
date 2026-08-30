@@ -11,8 +11,10 @@ A portable, read-only MCP server for searching medical literature and retrieving
 
 The public MCP interface intentionally starts with two interoperable tools:
 
-- `search({ query, limit? })` returns up to the requested number of deduplicated `{ id, title, url }` results (subject to the server cap).
+- `search({ query, limit?, fromYear?, toYear?, journals?, fullTextOnly? })` returns up to the requested number of deduplicated results (subject to the server cap). Each result includes its stable ID, title, URL, identifiers, providers, repository-full-text availability, and available journal, date, author, open-access, and citation metadata.
 - `fetch({ id })` returns normalized text, metadata, identifiers, provenance, license, and access links.
+
+Search filters are optional and work the same way locally and on Cloudflare. `journals` accepts up to five journal titles or common abbreviations. `fullTextOnly: true` restricts results to articles whose full text can be retrieved lawfully from PMC or Europe PMC; it does not bypass publisher access controls.
 
 This is a research retrieval tool, not medical advice. It does not bypass paywalls.
 
@@ -79,6 +81,8 @@ npm run smoke:providers
 ```
 
 This checks targeted searches and a stable cross-provider article through PubMed, Europe PMC, Crossref, and Unpaywall, and exits unsuccessfully if any individual source fails. `CONTACT_EMAIL` and `NCBI_API_KEY` are honored when set. Unpaywall is verified through DOI retrieval because it is a fetch-only enrichment source in this server.
+
+Run `npm run smoke:live` to verify the shared engine against live sources with journal, publication-year, and repository-full-text filters before fetching the first matching article.
 
 ## Status
 

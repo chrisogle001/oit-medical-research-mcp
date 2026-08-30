@@ -12,6 +12,7 @@ export type {
   ResearchProvider,
   ResearchRecord,
   ResearchServiceOptions,
+  SearchFilters,
   SearchResponse,
   SearchResult
 } from "./types.js";

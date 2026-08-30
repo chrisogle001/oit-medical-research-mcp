@@ -56,10 +56,84 @@ describe("ResearchService", () => {
         {
           id: "pmcid:PMC456",
           title: "A useful trial",
-          url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC456/"
+          url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC456/",
+          identifiers: { pmid: "123", pmcid: "PMC456", doi: "10.1000/trial" },
+          providers: ["europe-pmc", "pubmed"],
+          fullTextAvailable: true
         }
       ]
     });
+  });
+
+  it("applies structured date, journal, and repository-full-text filters", async () => {
+    let receivedFilters: Parameters<ResearchProvider["search"]>[2];
+    const provider: ResearchProvider = {
+      name: "pubmed",
+      async search(_query, _limit, filters) {
+        receivedFilters = filters;
+        return [
+          {
+            title: "Current Diabetes Care trial",
+            journal: "Diabetes Care",
+            publicationDate: "2024-06-01",
+            identifiers: { pmid: "1", pmcid: "PMC1" },
+            providers: ["pubmed"]
+          },
+          {
+            title: "Older Diabetes Care trial",
+            journal: "Diabetes Care",
+            publicationDate: "2019",
+            identifiers: { pmid: "2", pmcid: "PMC2" },
+            providers: ["pubmed"]
+          },
+          {
+            title: "Current Lancet trial",
+            journal: "The Lancet",
+            publicationDate: "2024",
+            identifiers: { pmid: "3", pmcid: "PMC3" },
+            providers: ["pubmed"]
+          },
+          {
+            title: "Metadata-only Diabetes Care trial",
+            journal: "Diabetes Care",
+            publicationDate: "2024",
+            identifiers: { pmid: "4" },
+            providers: ["pubmed"]
+          }
+        ];
+      },
+      async fetch() {
+        return null;
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const result = await service.search("diabetes trial", 10, {
+      fromYear: 2020,
+      toYear: 2025,
+      journals: ["Diabetes Care"],
+      fullTextOnly: true
+    });
+
+    expect(receivedFilters).toEqual({
+      fromYear: 2020,
+      toYear: 2025,
+      journals: ["Diabetes Care"],
+      fullTextOnly: true
+    });
+    expect(result.results.map(({ id }) => id)).toEqual(["pmcid:PMC1"]);
+    expect(result.results[0]).toMatchObject({
+      journal: "Diabetes Care",
+      publicationDate: "2024-06-01",
+      fullTextAvailable: true
+    });
+  });
+
+  it("rejects an inverted publication-year range", async () => {
+    const service = new ResearchService({ providers: [pubmed] });
+    await expect(service.search("year range", 10, { fromYear: 2025, toYear: 2020 })).rejects.toThrow(
+      "fromYear must be less than or equal to toYear"
+    );
   });
 
   it("honors a requested result limit", async () => {

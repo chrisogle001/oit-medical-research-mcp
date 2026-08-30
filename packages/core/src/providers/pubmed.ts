@@ -4,7 +4,8 @@ import type {
   CanonicalIdentifier,
   ProviderContext,
   ResearchProvider,
-  ResearchRecord
+  ResearchRecord,
+  SearchFilters
 } from "../types.js";
 
 interface PubMedSearchPayload {
@@ -29,14 +30,20 @@ export class PubMedProvider implements ResearchProvider {
 
   constructor(private readonly context: ProviderContext) {}
 
-  async search(query: string, limit: number): Promise<ResearchRecord[]> {
-    const searchUrl = this.url("esearch.fcgi", {
+  async search(query: string, limit: number, filters: SearchFilters = {}): Promise<ResearchRecord[]> {
+    const searchParams: Record<string, string> = {
       db: "pubmed",
       retmode: "json",
       retmax: String(limit),
       sort: "relevance",
-      term: query
-    });
+      term: pubMedSearchQuery(query, filters)
+    };
+    if (filters.fromYear !== undefined || filters.toYear !== undefined) {
+      searchParams.datetype = "pdat";
+      searchParams.mindate = String(filters.fromYear ?? 1800);
+      searchParams.maxdate = String(filters.toYear ?? 2100);
+    }
+    const searchUrl = this.url("esearch.fcgi", searchParams);
     const search = await fetchJson<PubMedSearchPayload>(this.context.fetch, this.name, searchUrl);
     const ids = search.esearchresult?.idlist ?? [];
     if (ids.length === 0) return [];
@@ -167,4 +174,19 @@ export class PubMedProvider implements ResearchProvider {
     if (this.context.ncbiApiKey) url.searchParams.set("api_key", this.context.ncbiApiKey);
     return url;
   }
+}
+
+function pubMedSearchQuery(query: string, filters: SearchFilters): string {
+  const clauses = [`(${query})`];
+  if (filters.journals?.length) {
+    clauses.push(
+      `(${filters.journals.map((journal) => `"${fieldPhrase(journal)}"[Journal]`).join(" OR ")})`
+    );
+  }
+  if (filters.fullTextOnly) clauses.push('"pubmed pmc"[sb]');
+  return clauses.join(" AND ");
+}
+
+function fieldPhrase(value: string): string {
+  return value.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
 }

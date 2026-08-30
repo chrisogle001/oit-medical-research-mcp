@@ -10,10 +10,13 @@ import type {
   ResearchProvider,
   ResearchRecord,
   ResearchServiceOptions,
+  SearchFilters,
   SearchResponse
 } from "./types.js";
 
 const DEFAULT_CONTACT_EMAIL = "research-api@ogleits.com";
+const MIN_PUBLICATION_YEAR = 1800;
+const MAX_PUBLICATION_YEAR = 2100;
 
 export class ResearchService {
   private readonly providers: ResearchProvider[];
@@ -42,31 +45,47 @@ export class ResearchService {
     ];
   }
 
-  async search(query: string, requestedLimit?: number): Promise<SearchResponse> {
+  async search(
+    query: string,
+    requestedLimit?: number,
+    filters: SearchFilters = {}
+  ): Promise<SearchResponse> {
     const normalizedQuery = query.trim();
     if (normalizedQuery.length < 2) throw new Error("Enter a more specific medical research query.");
     if (normalizedQuery.length > 1_000) {
       throw new Error("The medical research query is too long.");
     }
+    const normalizedFilters = normalizeSearchFilters(filters);
     const resultLimit = Math.min(this.maxResults, positiveInteger(requestedLimit, this.maxResults));
     const perProvider = Math.max(4, Math.ceil(resultLimit / 2));
     const settled = await settleWithConcurrency(
       this.providers,
       this.maxProviderConcurrency,
-      (provider) => provider.search(normalizedQuery, perProvider)
+      (provider) => provider.search(normalizedQuery, perProvider, normalizedFilters)
     );
     const records = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     if (records.length === 0 && settled.every((result) => result.status === "rejected")) {
       throw new Error("The medical literature sources are temporarily unavailable.");
     }
 
-    const results = rankSearchRecords(deduplicateRecords(records), normalizedQuery)
+    const results = rankSearchRecords(
+      deduplicateRecords(records).filter((record) => matchesSearchFilters(record, normalizedFilters)),
+      normalizedQuery
+    )
       .filter(hasStableIdentifier)
       .slice(0, resultLimit)
       .map((record) => ({
         id: canonicalId(record),
         title: record.title,
-        url: canonicalUrl(record)
+        url: canonicalUrl(record),
+        identifiers: record.identifiers,
+        providers: record.providers,
+        ...(record.authors?.length ? { authors: record.authors.slice(0, 12) } : {}),
+        ...(record.journal ? { journal: record.journal } : {}),
+        ...(record.publicationDate ? { publicationDate: record.publicationDate } : {}),
+        ...(record.isOpenAccess !== undefined ? { isOpenAccess: record.isOpenAccess } : {}),
+        fullTextAvailable: hasRepositoryFullText(record),
+        ...(record.citationCount !== undefined ? { citationCount: record.citationCount } : {})
       }));
     return { results };
   }
@@ -127,6 +146,92 @@ export class ResearchService {
 function positiveInteger(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
 }
+
+function normalizeSearchFilters(filters: SearchFilters): SearchFilters {
+  const fromYear = optionalYear(filters.fromYear, "fromYear");
+  const toYear = optionalYear(filters.toYear, "toYear");
+  if (fromYear !== undefined && toYear !== undefined && fromYear > toYear) {
+    throw new Error("fromYear must be less than or equal to toYear.");
+  }
+
+  const journals = [...new Set((filters.journals ?? []).map((journal) => journal.trim()).filter(Boolean))];
+  if (journals.length > 5) throw new Error("Search can filter by at most five journals at a time.");
+  if (journals.some((journal) => journal.length > 200)) {
+    throw new Error("A journal name is too long.");
+  }
+  if (journals.some((journal) => !/[a-z0-9]/i.test(journal))) {
+    throw new Error("Enter a valid journal name.");
+  }
+
+  return {
+    ...(fromYear !== undefined ? { fromYear } : {}),
+    ...(toYear !== undefined ? { toYear } : {}),
+    ...(journals.length ? { journals } : {}),
+    ...(filters.fullTextOnly === true ? { fullTextOnly: true } : {})
+  };
+}
+
+function optionalYear(value: number | undefined, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < MIN_PUBLICATION_YEAR || value > MAX_PUBLICATION_YEAR) {
+    throw new Error(
+      `${field} must be a year between ${MIN_PUBLICATION_YEAR} and ${MAX_PUBLICATION_YEAR}.`
+    );
+  }
+  return value;
+}
+
+function matchesSearchFilters(record: ResearchRecord, filters: SearchFilters): boolean {
+  if (filters.fullTextOnly && !hasRepositoryFullText(record)) return false;
+
+  if (filters.fromYear !== undefined || filters.toYear !== undefined) {
+    const publicationYear = parsePublicationYear(record.publicationDate);
+    if (publicationYear === undefined) return false;
+    if (filters.fromYear !== undefined && publicationYear < filters.fromYear) return false;
+    if (filters.toYear !== undefined && publicationYear > filters.toYear) return false;
+  }
+
+  if (filters.journals?.length) {
+    if (!record.journal) return false;
+    const recordJournal = normalizeJournalName(record.journal);
+    if (!filters.journals.some((journal) => journalsMatch(recordJournal, normalizeJournalName(journal)))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function parsePublicationYear(value: string | undefined): number | undefined {
+  const match = value?.match(/(?:^|\D)(1[89]\d{2}|20\d{2}|21\d{2})(?:\D|$)/);
+  return match?.[1] ? Number(match[1]) : undefined;
+}
+
+function normalizeJournalName(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/^the /, "");
+  return JOURNAL_ALIASES.get(normalized) ?? normalized;
+}
+
+function journalsMatch(left: string, right: string): boolean {
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+function hasRepositoryFullText(record: ResearchRecord): boolean {
+  return Boolean(record.fullText || record.fullTextUrl || record.identifiers.pmcid);
+}
+
+const JOURNAL_ALIASES = new Map([
+  ["nejm", "new england journal of medicine"],
+  ["n engl j med", "new england journal of medicine"],
+  ["jcem", "journal of clinical endocrinology and metabolism"],
+  ["j clin endocrinol metab", "journal of clinical endocrinology and metabolism"],
+  ["the bmj", "bmj"]
+]);
 
 async function settleWithConcurrency<Item, Result>(
   items: readonly Item[],

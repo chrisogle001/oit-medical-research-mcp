@@ -5,7 +5,8 @@ import type {
   CanonicalIdentifier,
   ProviderContext,
   ResearchProvider,
-  ResearchRecord
+  ResearchRecord,
+  SearchFilters
 } from "../types.js";
 
 interface CrossrefWork {
@@ -35,11 +36,29 @@ export class CrossrefProvider implements ResearchProvider {
 
   constructor(private readonly context: ProviderContext) {}
 
-  async search(query: string, limit: number): Promise<ResearchRecord[]> {
+  async search(query: string, limit: number, filters: SearchFilters = {}): Promise<ResearchRecord[]> {
+    if (filters.fullTextOnly) return [];
+    const journals = filters.journals?.length ? filters.journals : [undefined];
+    const perJournal = Math.max(1, Math.ceil(limit / journals.length));
+    const records: ResearchRecord[] = [];
+    for (const journal of journals) {
+      records.push(...(await this.searchApi(query, perJournal, filters, journal)));
+    }
+    return uniqueRecords(records);
+  }
+
+  private async searchApi(
+    query: string,
+    limit: number,
+    filters: SearchFilters,
+    journal: string | undefined
+  ): Promise<ResearchRecord[]> {
     const url = new URL("https://api.crossref.org/works");
     url.searchParams.set("query", query);
     url.searchParams.set("rows", String(limit));
     url.searchParams.set("select", "DOI,URL,title,abstract,author,container-title,published,published-print,published-online,license,is-referenced-by-count");
+    const apiFilters = crossrefFilters(filters, journal);
+    if (apiFilters.length) url.searchParams.set("filter", apiFilters.join(","));
     url.searchParams.set("mailto", this.context.contactEmail);
     const payload = await fetchJson<CrossrefSearchPayload>(this.context.fetch, this.name, url);
     return (payload.message?.items ?? []).map((work) => this.toRecord(work));
@@ -78,4 +97,26 @@ export class CrossrefProvider implements ResearchProvider {
       providers: [this.name]
     };
   }
+}
+
+function crossrefFilters(filters: SearchFilters, journal: string | undefined): string[] {
+  return [
+    filters.fromYear !== undefined ? `from-pub-date:${filters.fromYear}-01-01` : undefined,
+    filters.toYear !== undefined ? `until-pub-date:${filters.toYear}-12-31` : undefined,
+    journal ? `container-title:${filterValue(journal)}` : undefined
+  ].filter((value): value is string => Boolean(value));
+}
+
+function filterValue(value: string): string {
+  return value.replace(/[:,]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function uniqueRecords(records: ResearchRecord[]): ResearchRecord[] {
+  const seen = new Set<string>();
+  return records.filter((record) => {
+    const key = record.identifiers.doi ?? record.title.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
