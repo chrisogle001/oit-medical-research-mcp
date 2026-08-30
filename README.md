@@ -11,7 +11,7 @@ A portable, read-only MCP server for searching medical literature and retrieving
 
 The public MCP interface intentionally starts with two interoperable tools:
 
-- `search({ query })` returns deduplicated `{ id, title, url }` results.
+- `search({ query, limit? })` returns up to the requested number of deduplicated `{ id, title, url }` results (subject to the server cap).
 - `fetch({ id })` returns normalized text, metadata, identifiers, provenance, license, and access links.
 
 This is a research retrieval tool, not medical advice. It does not bypass paywalls.

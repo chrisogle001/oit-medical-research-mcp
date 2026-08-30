@@ -42,13 +42,14 @@ export class ResearchService {
     ];
   }
 
-  async search(query: string): Promise<SearchResponse> {
+  async search(query: string, requestedLimit?: number): Promise<SearchResponse> {
     const normalizedQuery = query.trim();
     if (normalizedQuery.length < 2) throw new Error("Enter a more specific medical research query.");
     if (normalizedQuery.length > 1_000) {
       throw new Error("The medical research query is too long.");
     }
-    const perProvider = Math.max(4, Math.ceil(this.maxResults / 2));
+    const resultLimit = Math.min(this.maxResults, positiveInteger(requestedLimit, this.maxResults));
+    const perProvider = Math.max(4, Math.ceil(resultLimit / 2));
     const settled = await settleWithConcurrency(
       this.providers,
       this.maxProviderConcurrency,
@@ -61,7 +62,7 @@ export class ResearchService {
 
     const results = deduplicateRecords(records)
       .filter(hasStableIdentifier)
-      .slice(0, this.maxResults)
+      .slice(0, resultLimit)
       .map((record) => ({
         id: canonicalId(record),
         title: record.title,

@@ -120,12 +120,15 @@ try {
   if (tools.join(",") !== "fetch,search") throw new Error(`Unexpected tool catalog: ${tools.join(", ")}`);
   const searchCall = await callMcp("tools/call", {
     name: "search",
-    arguments: { query: "semaglutide cardiovascular outcomes trial" }
+    arguments: { query: "semaglutide cardiovascular outcomes trial", limit: 3 }
   });
   const content = searchCall.result?.content?.[0];
   if (content?.type !== "text" || !content.text) throw new Error("Search returned no MCP text content.");
   const search = JSON.parse(content.text) as { results?: Array<{ id?: string }> };
   if (!search.results?.length) throw new Error("Authenticated literature search returned no results.");
+  if (search.results.length !== 3) {
+    throw new Error(`Authenticated literature search returned ${search.results.length} results; expected 3.`);
+  }
   const firstResultId = search.results[0]?.id;
   if (!firstResultId) throw new Error("Authenticated literature search returned a result without an ID.");
 

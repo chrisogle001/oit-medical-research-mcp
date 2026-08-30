@@ -89,7 +89,7 @@ if (tools.join(",") !== "fetch,search") {
 
 const searchCall = await callMcp("tools/call", {
   name: "search",
-  arguments: { query: "semaglutide cardiovascular outcomes trial" }
+  arguments: { query: "semaglutide cardiovascular outcomes trial", limit: 3 }
 });
 const firstContent = (searchCall.result?.content as Array<{ type?: string; text?: string }> | undefined)?.[0];
 if (firstContent?.type !== "text" || !firstContent.text) {
@@ -97,6 +97,9 @@ if (firstContent?.type !== "text" || !firstContent.text) {
 }
 const search = JSON.parse(firstContent.text) as { results?: unknown[] };
 if (!search.results?.length) throw new Error("Remote search returned no literature results.");
+if (search.results.length !== 3) {
+  throw new Error(`Remote search returned ${search.results.length} results; expected 3.`);
+}
 
 console.log(
   JSON.stringify(

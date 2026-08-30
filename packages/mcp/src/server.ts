@@ -7,7 +7,14 @@ const SearchInput = z.object({
     .string()
     .min(2)
     .max(1_000)
-    .describe("A natural-language or keyword medical literature query.")
+    .describe("A natural-language or keyword medical literature query."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Maximum number of deduplicated results to return. Defaults to the server limit.")
 });
 
 const FetchInput = z.object({
@@ -39,7 +46,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
         openWorldHint: true
       }
     },
-    async ({ query }) => toolResult(() => service.search(query))
+    async ({ query, limit }) => toolResult(() => service.search(query, limit))
   );
 
   server.registerTool(

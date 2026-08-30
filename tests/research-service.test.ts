@@ -62,6 +62,27 @@ describe("ResearchService", () => {
     });
   });
 
+  it("honors a requested result limit", async () => {
+    const provider: ResearchProvider = {
+      name: "pubmed",
+      async search() {
+        return Array.from({ length: 5 }, (_, index) => ({
+          title: `Study ${index + 1}`,
+          identifiers: { pmid: String(index + 1) },
+          providers: ["pubmed"]
+        }));
+      },
+      async fetch() {
+        return null;
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const result = await service.search("limited result test", 3);
+
+    expect(result.results).toHaveLength(3);
+  });
+
   it("follows a discovered PMCID to lawful full text", async () => {
     const service = new ResearchService({ providers: [pubmed, europePmc] });
     const result = await service.fetch("pmid:123");
