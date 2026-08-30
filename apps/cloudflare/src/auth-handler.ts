@@ -12,6 +12,7 @@ import {
   renderHome
 } from "./html.js";
 import {
+  clearConsentCookie,
   clearCsrfCookie,
   clearOAuthStateCookie,
   clearSessionCookie,
@@ -149,11 +150,23 @@ async function continueClientAuthorization(request: Request, env: OAuthEnv): Pro
   }
 
   if (decision === "deny") {
-    return redirectAuthorizationError(oauthRequest, "access_denied", "You declined access.");
+    return appendCookie(
+      redirectAuthorizationError(oauthRequest, "access_denied", "You declined access."),
+      clearConsentCookie()
+    );
   }
-  if (decision !== "approve") return renderError("Invalid request", "No authorization choice was provided.");
+  if (decision !== "approve") {
+    return appendCookie(
+      renderError("Invalid request", "No authorization choice was provided."),
+      clearConsentCookie()
+    );
+  }
 
-  return startGitHubFlow(request, env, { kind: "mcp", request: oauthRequest });
+  const session = await readSession(request, env.COOKIE_ENCRYPTION_KEY);
+  const response = session
+    ? await completeMcpAuthorization(env, oauthRequest, session)
+    : await startGitHubFlow(request, env, { kind: "mcp", request: oauthRequest });
+  return appendCookie(response, clearConsentCookie());
 }
 
 async function beginAccountLogin(request: Request, env: OAuthEnv): Promise<Response> {
@@ -196,7 +209,10 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
     ? await validateOAuthStateCookie(request, state, env.COOKIE_ENCRYPTION_KEY)
     : null;
   if (!state || !flow) {
-    return renderError("Sign-in expired", "The browser session could not be matched to this sign-in.");
+    return appendCookie(
+      renderError("Sign-in expired", "The browser session could not be matched to this sign-in."),
+      clearOAuthStateCookie()
+    );
   }
 
   const upstreamError = url.searchParams.get("error");
@@ -205,12 +221,16 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
       flow.kind === "mcp"
         ? redirectAuthorizationError(flow.request, "access_denied", "GitHub sign-in was not completed.")
         : renderError("Sign-in cancelled", "GitHub sign-in was not completed.");
-    response.headers.append("Set-Cookie", clearOAuthStateCookie());
-    return response;
+    return appendCookie(response, clearOAuthStateCookie());
   }
 
   const code = url.searchParams.get("code");
-  if (!code) return renderError("Invalid callback", "GitHub did not provide an authorization code.");
+  if (!code) {
+    return appendCookie(
+      renderError("Invalid callback", "GitHub did not provide an authorization code."),
+      clearOAuthStateCookie()
+    );
+  }
   const tokenResult = await exchangeGitHubCode(
     code,
     new URL("/callback", request.url).toString(),
@@ -224,34 +244,61 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
         ...(tokenResult.status ? { status: tokenResult.status } : {})
       })
     );
-    return renderError(
-      "GitHub sign-in failed",
-      githubOAuthFailureMessage(tokenResult.reason),
-      tokenResult.reason === "rate_limited" ? 503 : 502
+    return appendCookie(
+      renderError(
+        "GitHub sign-in failed",
+        githubOAuthFailureMessage(tokenResult.reason),
+        tokenResult.reason === "rate_limited" ? 503 : 502
+      ),
+      clearOAuthStateCookie()
     );
   }
   const user = await fetchGitHubUser(tokenResult.accessToken);
-  if (!user) return renderError("GitHub profile unavailable", "The signed-in GitHub profile could not be read.", 502);
+  if (!user) {
+    return appendCookie(
+      renderError(
+        "GitHub profile unavailable",
+        "The signed-in GitHub profile could not be read.",
+        502
+      ),
+      clearOAuthStateCookie()
+    );
+  }
 
   const sessionCookie = await createSessionCookie(user, env.COOKIE_ENCRYPTION_KEY);
   if (flow.kind === "account") {
     const headers = new Headers({ Location: flow.returnTo, "Cache-Control": "no-store" });
     headers.append("Set-Cookie", sessionCookie);
-    return new Response(null, { status: 302, headers });
+    return appendCookie(
+      new Response(null, { status: 302, headers }),
+      clearOAuthStateCookie()
+    );
   }
 
-  const client = await env.OAUTH_PROVIDER.lookupClient(flow.request.clientId);
+  return appendCookie(
+    await completeMcpAuthorization(env, flow.request, user, sessionCookie),
+    clearOAuthStateCookie()
+  );
+}
+
+async function completeMcpAuthorization(
+  env: OAuthEnv,
+  oauthRequest: AuthRequest,
+  user: AuthenticatedUser,
+  sessionCookie?: string
+): Promise<Response> {
+  const client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
   if (!client) return renderError("Unknown MCP client", "The requesting client is no longer registered.");
-  const grantedScopes = flow.request.scope.filter((scope) => scope === RESEARCH_SCOPE);
+  const grantedScopes = oauthRequest.scope.filter((scope) => scope === RESEARCH_SCOPE);
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-    request: flow.request,
+    request: oauthRequest,
     userId: user.userId,
     metadata: { clientName: client.clientName || "MCP client" },
     scope: grantedScopes,
     props: { ...user, scopes: grantedScopes }
   });
   const headers = new Headers({ Location: redirectTo, "Cache-Control": "no-store" });
-  headers.append("Set-Cookie", sessionCookie);
+  if (sessionCookie) headers.append("Set-Cookie", sessionCookie);
   return new Response(null, { status: 302, headers });
 }
 
@@ -599,6 +646,11 @@ function redirectResponse(location: string, status = 302): Response {
     status,
     headers: { Location: location, "Cache-Control": "no-store" }
   });
+}
+
+function appendCookie(response: Response, cookie: string): Response {
+  response.headers.append("Set-Cookie", cookie);
+  return response;
 }
 
 function validateConfiguration(env: OAuthEnv): Response | null {

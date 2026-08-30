@@ -22,7 +22,7 @@ The OAuth provider validates bearer tokens, exact resource audiences, redirects,
 
 ### Confused-deputy authorization and CSRF
 
-The application shows the requesting client and requested capability before GitHub navigation. Consent state and the GitHub return flow are short-lived, browser-bound, signed cookies. Account mutations use a separate short-lived CSRF cookie and POST. Account deletion also requires the signed-in GitHub login to be typed exactly.
+The application shows the requesting client and requested capability before identity verification. Consent state and the GitHub return flow are short-lived, browser-bound, signed cookies. Callback state is consumed on both success and failure to prevent reload-based replay. A valid signed session can authorize another MCP client without another GitHub exchange, reducing upstream token-request exposure. Account mutations use a separate short-lived CSRF cookie and POST. Account deletion also requires the signed-in GitHub login to be typed exactly.
 
 ### Credential disclosure
 

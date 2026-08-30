@@ -62,7 +62,7 @@ The first deployment creates separate OAuth and encrypted-user-settings KV bindi
 
 Ogle IT Services hosts the production deployment at [oit-medical-research-mcp.oit-medical-research-mcp.workers.dev](https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev). Its remote MCP endpoint is `/mcp`; independent installations continue to use their own Cloudflare and GitHub accounts.
 
-Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent and GitHub sign-in flow.
+Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent flow. A valid eight-hour browser session is reused, so GitHub identity verification happens only when the user is not already signed in.
 
 For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as comma-separated Worker variables. Browser Origins remain validated by default.
 
@@ -92,4 +92,4 @@ Run `npm run smoke:live` to verify the shared engine against live sources with j
 
 ## Status
 
-The shared foundation, structured literature search, article retrieval, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.
+The shared foundation, structured literature search, article retrieval, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity with signed-session reuse, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.

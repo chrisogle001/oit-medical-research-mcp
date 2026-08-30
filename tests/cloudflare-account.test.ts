@@ -1,7 +1,16 @@
-import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { describe, expect, it } from "vitest";
+import type {
+  AuthRequest as OAuthAuthorizationRequest,
+  CompleteAuthorizationOptions,
+  OAuthHelpers
+} from "@cloudflare/workers-oauth-provider";
+import { describe, expect, it, vi } from "vitest";
 import { authHandler } from "../apps/cloudflare/src/auth-handler.js";
-import { createCsrfCookie, createSessionCookie } from "../apps/cloudflare/src/security.js";
+import {
+  createConsentCookie,
+  createCsrfCookie,
+  createOAuthStateCookie,
+  createSessionCookie
+} from "../apps/cloudflare/src/security.js";
 import {
   readUserProviderSettings,
   saveUserProviderSettings
@@ -62,7 +71,101 @@ function testEnv(storage: MemoryKv, oauth: Partial<OAuthHelpers> = {}): AuthEnv 
   } as unknown as AuthEnv;
 }
 
+function cookiePair(setCookie: string): string {
+  return setCookie.split(";", 1)[0]!;
+}
+
 describe("Cloudflare account controls", () => {
+  it("reuses a valid browser session when approving a new MCP client", async () => {
+    const storage = new MemoryKv();
+    const consentState = "consent-state";
+    const oauthRequest: OAuthAuthorizationRequest = {
+      responseType: "code",
+      clientId: "claude-client",
+      redirectUri: "https://claude.example/callback",
+      scope: ["mcp:research"],
+      state: "client-state"
+    };
+    const consent = cookiePair(
+      await createConsentCookie(consentState, oauthRequest, cookieSecret)
+    );
+    const session = cookiePair(await createSessionCookie(user, cookieSecret));
+    let completed: CompleteAuthorizationOptions | null = null;
+    const request = new Request(
+      `https://example.workers.dev/authorize?consent_state=${consentState}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${consent}; ${session}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({ decision: "approve" })
+      }
+    );
+
+    const response = await authHandler.fetch(
+      request as AuthRequest,
+      testEnv(storage, {
+        async lookupClient(clientId) {
+          return {
+            clientId,
+            clientName: "Claude",
+            redirectUris: [oauthRequest.redirectUri],
+            tokenEndpointAuthMethod: "none"
+          };
+        },
+        async completeAuthorization(options) {
+          completed = options;
+          return { redirectTo: "https://claude.example/callback?code=issued" };
+        }
+      })
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "https://claude.example/callback?code=issued"
+    );
+    expect(completed).toMatchObject({
+      request: oauthRequest,
+      userId: user.userId,
+      scope: ["mcp:research"]
+    });
+    expect(response.headers.get("Set-Cookie")).toContain(
+      "__Host-MEDICAL_RESEARCH_CONSENT="
+    );
+    expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("consumes GitHub callback state when the token exchange is rate limited", async () => {
+    const storage = new MemoryKv();
+    const oauthState = cookiePair(
+      await createOAuthStateCookie(
+        "github-state",
+        { kind: "account", returnTo: "/account" },
+        cookieSecret
+      )
+    );
+    const request = new Request(
+      "https://example.workers.dev/callback?state=github-state&code=temporary-code",
+      { headers: { Cookie: oauthState } }
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ message: "rate limited" }, { status: 429 }));
+
+    try {
+      const response = await authHandler.fetch(request as AuthRequest, testEnv(storage));
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Set-Cookie")).toContain(
+        "__Host-MEDICAL_RESEARCH_OAUTH_STATE="
+      );
+      expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it("stores a personal NCBI key only after session and CSRF validation", async () => {
     const storage = new MemoryKv();
     const request = await authenticatedRequest(

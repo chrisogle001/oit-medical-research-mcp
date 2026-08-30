@@ -5,8 +5,8 @@
 - Local stdio inherits the permissions and environment of the person running it.
 - The Cloudflare MCP endpoint requires an OAuth access token issued for that exact MCP resource. Anonymous requests return HTTP 401 with standards-based discovery metadata.
 - GitHub establishes user identity after an explicit MCP-client consent screen. The GitHub access token is discarded after the profile lookup and is never stored in MCP grants or exposed to tools.
-- Consent and GitHub OAuth state are random, short-lived, and bound to the browser in HMAC-protected `__Host-` cookies, avoiding immediate-read races in distributed KV. Consent remains a POST action; account mutations use separate short-lived CSRF cookies.
-- Account sessions are short-lived and HMAC-signed. Users can list and revoke their MCP client grants from `/account`.
+- Consent and GitHub OAuth state are random, short-lived, and bound to the browser in HMAC-protected `__Host-` cookies, avoiding immediate-read races in distributed KV. OAuth callback state is cleared on success or failure so a callback cannot be replayed by reloading it. Consent remains a POST action; account mutations use separate short-lived CSRF cookies.
+- Account sessions are short-lived and HMAC-signed. A valid session completes later MCP consent requests without repeating the upstream GitHub token exchange. Users can list and revoke their MCP client grants from `/account`.
 - Protected MCP requests require the `mcp:research` scope. Research tool calls are limited to 30 per account per minute and oversized MCP request bodies are rejected before protocol parsing.
 - Provider fan-out is capped at three concurrent provider operations per research request.
 - `/health` and `/` reveal only service status and connection instructions.

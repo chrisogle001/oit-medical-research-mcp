@@ -69,11 +69,11 @@ export function renderConsent(options: ConsentPageOptions): Response {
           </div>
           <div class="permission muted">
             <strong>It will not be able to:</strong>
-            <ul><li>Change records at the literature providers</li><li>See your GitHub password or retain a GitHub access token</li><li>Bypass publisher access controls</li></ul>
+            <ul><li>Change records at the literature providers</li><li>See your identity provider password or retain its temporary access token</li><li>Bypass publisher access controls</li></ul>
           </div>
           <form method="post" action="/authorize?consent_state=${encodeURIComponent(options.consentState)}" class="actions right">
             <button class="button secondary" type="submit" name="decision" value="deny">Cancel</button>
-            <button class="button primary" type="submit" name="decision" value="approve">Continue to GitHub</button>
+            <button class="button primary" type="submit" name="decision" value="approve">Continue</button>
           </form>
           <p class="fine">Requested redirect: <code>${escapeHtml(options.oauthRequest.redirectUri)}</code></p>
         </section>
