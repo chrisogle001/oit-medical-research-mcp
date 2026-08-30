@@ -52,6 +52,8 @@ npm run deploy:cloudflare
 
 The first deployment creates separate OAuth and encrypted-user-settings KV bindings and reveals the Worker URL. Create a GitHub OAuth App with `https://<your-worker>/callback` as its callback, then store `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, a random `COOKIE_ENCRYPTION_KEY`, and a different random `USER_DATA_ENCRYPTION_KEY` with `wrangler secret put`. Both random secrets must contain at least 32 characters. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
 
+Ogle IT Services hosts the production deployment at [oit-medical-research-mcp.oit-medical-research-mcp.workers.dev](https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev). Its remote MCP endpoint is `/mcp`; independent installations continue to use their own Cloudflare and GitHub accounts.
+
 Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent and GitHub sign-in flow.
 
 For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as comma-separated Worker variables. Browser Origins remain validated by default.

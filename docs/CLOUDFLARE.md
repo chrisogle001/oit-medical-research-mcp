@@ -12,20 +12,20 @@ Each person can install this project into their own Cloudflare and GitHub accoun
 6. Store the GitHub client ID and generated client secret:
 
    ```powershell
-   npx wrangler secret put GITHUB_CLIENT_ID --config apps/cloudflare/wrangler.jsonc
-   npx wrangler secret put GITHUB_CLIENT_SECRET --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put GITHUB_CLIENT_ID --env= --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put GITHUB_CLIENT_SECRET --env= --config apps/cloudflare/wrangler.jsonc
    ```
 
 7. Generate a random session-signing value of at least 32 characters and store it:
 
    ```powershell
-   npx wrangler secret put COOKIE_ENCRYPTION_KEY --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put COOKIE_ENCRYPTION_KEY --env= --config apps/cloudflare/wrangler.jsonc
    ```
 
 8. Generate a different random value of at least 32 characters for personal provider settings and store it:
 
    ```powershell
-   npx wrangler secret put USER_DATA_ENCRYPTION_KEY --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put USER_DATA_ENCRYPTION_KEY --env= --config apps/cloudflare/wrangler.jsonc
    ```
 
    Rotating this secret makes existing personal provider settings unreadable. Remove or migrate those settings before rotation.
@@ -33,7 +33,7 @@ Each person can install this project into their own Cloudflare and GitHub accoun
 9. Optionally store an operator-wide NCBI API key for higher NCBI request limits. A user's encrypted personal key takes precedence for that user's requests:
 
    ```powershell
-   npx wrangler secret put NCBI_API_KEY --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put NCBI_API_KEY --env= --config apps/cloudflare/wrangler.jsonc
    ```
 
 10. Run `npm run deploy:cloudflare` again and configure a compatible MCP client with `https://<your-worker>/mcp`.
@@ -53,6 +53,17 @@ npm run dev:cloudflare
 Local KV state, rate limiting, and Analytics Engine bindings are simulated by Wrangler and remain separate from deployed resources.
 
 The committed rate-limit namespace IDs must be unique within a Cloudflare account. If `48101` or `48102` is already used by another Worker in your account, replace it with a different positive integer before deployment; bindings that share an ID also share counters.
+
+## OIT production environment
+
+The Ogle IT Services production deployment is available at:
+
+- Base URL: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev`
+- MCP endpoint: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev/mcp`
+- GitHub callback: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev/callback`
+- Account page: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev/account`
+
+It uses production-only OAuth credentials, KV namespaces, encryption secrets, rate-limit counters, and the `oit_medical_research_usage` Analytics Engine dataset. The staging environment remains isolated from all of these resources.
 
 ## OIT staging environment
 

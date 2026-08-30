@@ -11,9 +11,6 @@ import { parseAuthenticatedUser } from "./security.js";
 import { accountPseudonym, readUserProviderSettings } from "./user-data.js";
 
 const RESEARCH_SCOPE = "mcp:research";
-const VERIFIED_OAUTH_CONTEXT = Symbol.for(
-  "cloudflare.workers-oauth-provider.verified-context.v1"
-);
 
 export const mcpApiHandler = {
   async fetch(request, env, context): Promise<Response> {
@@ -21,7 +18,7 @@ export const mcpApiHandler = {
       (context as ExecutionContext & { props?: unknown }).props
     );
     if (!user) return mcpErrorResponse(401, "A valid account authorization is required.");
-    if (!hasResearchScope(context)) {
+    if (!user.scopes?.includes(RESEARCH_SCOPE)) {
       return mcpErrorResponse(403, "The authorization does not include medical research access.");
     }
     if (
@@ -179,17 +176,4 @@ function list(value?: string): string[] | undefined {
     .map((item) => item.trim())
     .filter(Boolean);
   return values?.length ? values : undefined;
-}
-
-function hasResearchScope(context: ExecutionContext): boolean {
-  const verified = (context as ExecutionContext & Record<symbol, unknown>)[
-    VERIFIED_OAUTH_CONTEXT
-  ];
-  return (
-    typeof verified === "object" &&
-    verified !== null &&
-    "scopes" in verified &&
-    Array.isArray(verified.scopes) &&
-    verified.scopes.includes(RESEARCH_SCOPE)
-  );
 }

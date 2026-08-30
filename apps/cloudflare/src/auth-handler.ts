@@ -248,7 +248,7 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
     userId: user.userId,
     metadata: { clientName: client.clientName || "MCP client" },
     scope: grantedScopes,
-    props: user
+    props: { ...user, scopes: grantedScopes }
   });
   const headers = new Headers({ Location: redirectTo, "Cache-Control": "no-store" });
   headers.append("Set-Cookie", sessionCookie);

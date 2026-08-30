@@ -13,6 +13,7 @@ export interface AuthenticatedUser {
   login: string;
   displayName: string;
   avatarUrl?: string;
+  scopes?: string[];
 }
 
 export function parseAuthenticatedUser(value: unknown): AuthenticatedUser | null {
@@ -21,7 +22,9 @@ export function parseAuthenticatedUser(value: unknown): AuthenticatedUser | null
     typeof value.userId !== "string" ||
     typeof value.login !== "string" ||
     typeof value.displayName !== "string" ||
-    (value.avatarUrl !== undefined && typeof value.avatarUrl !== "string")
+    (value.avatarUrl !== undefined && typeof value.avatarUrl !== "string") ||
+    (value.scopes !== undefined &&
+      (!Array.isArray(value.scopes) || value.scopes.some((scope) => typeof scope !== "string")))
   ) {
     return null;
   }
@@ -29,7 +32,8 @@ export function parseAuthenticatedUser(value: unknown): AuthenticatedUser | null
     userId: value.userId,
     login: value.login,
     displayName: value.displayName,
-    ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {})
+    ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
+    ...(value.scopes ? { scopes: value.scopes } : {})
   };
 }
 

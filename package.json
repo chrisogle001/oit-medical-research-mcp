@@ -31,9 +31,9 @@
     "start:local": "tsx apps/local/src/index.ts",
     "dev:cloudflare": "wrangler dev --config apps/cloudflare/wrangler.jsonc",
     "dev:cloudflare:staging": "wrangler dev --env staging --config apps/cloudflare/wrangler.jsonc",
-    "deploy:cloudflare": "wrangler deploy --config apps/cloudflare/wrangler.jsonc",
+    "deploy:cloudflare": "wrangler deploy --env= --config apps/cloudflare/wrangler.jsonc",
     "deploy:cloudflare:staging": "wrangler deploy --env staging --config apps/cloudflare/wrangler.jsonc",
-    "check:cloudflare": "wrangler deploy --dry-run --config apps/cloudflare/wrangler.jsonc",
+    "check:cloudflare": "wrangler deploy --dry-run --env= --config apps/cloudflare/wrangler.jsonc",
     "check:cloudflare:staging": "wrangler deploy --dry-run --env staging --config apps/cloudflare/wrangler.jsonc",
     "cf-typegen": "tsx scripts/cloudflare-typegen.ts",
     "cf-typegen:check": "tsx scripts/cloudflare-typegen.ts --check"

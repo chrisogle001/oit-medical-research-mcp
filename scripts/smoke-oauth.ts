@@ -40,7 +40,7 @@ try {
     registration_endpoint: string;
   }>(`${baseUrl}/.well-known/oauth-authorization-server`);
   const registration = await postJson<{ client_id: string }>(serverMetadata.registration_endpoint, {
-    client_name: "OIT staging OAuth smoke test",
+    client_name: "OIT OAuth smoke test",
     redirect_uris: [redirectUri],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],

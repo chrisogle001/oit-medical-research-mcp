@@ -1,18 +1,16 @@
 import { describe, expect, it } from "vitest";
 import worker, { mcpApiHandler } from "../apps/cloudflare/src/index.js";
 
-const authProps = { userId: "42", login: "researcher", displayName: "Researcher" };
+const authProps = {
+  userId: "42",
+  login: "researcher",
+  displayName: "Researcher",
+  scopes: ["mcp:research"]
+};
 const context = {
   waitUntil() {},
   passThroughOnException() {},
-  props: authProps,
-  [Symbol.for("cloudflare.workers-oauth-provider.verified-context.v1")]: {
-    version: 1,
-    token: "test-access-token",
-    clientId: "test-client",
-    scopes: ["mcp:research"],
-    props: authProps
-  }
+  props: authProps
 } as unknown as ExecutionContext;
 
 const userData = new Map<string, string>();
@@ -153,14 +151,7 @@ describe("Cloudflare Worker boundary", () => {
     const unscopedContext = {
       waitUntil() {},
       passThroughOnException() {},
-      props: authProps,
-      [Symbol.for("cloudflare.workers-oauth-provider.verified-context.v1")]: {
-        version: 1,
-        token: "unscoped-access-token",
-        clientId: "test-client",
-        scopes: [],
-        props: authProps
-      }
+      props: { ...authProps, scopes: [] }
     } as unknown as ExecutionContext;
     const response = await mcpApiHandler.fetch(
       new Request("https://example.workers.dev/mcp", { method: "GET" }) as WorkerRequest,

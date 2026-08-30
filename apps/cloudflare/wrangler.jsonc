@@ -14,7 +14,9 @@
     }
   },
   "vars": {
-    "CONTACT_EMAIL": "research-api@ogleits.com"
+    "CONTACT_EMAIL": "research-api@ogleits.com",
+    "ALLOWED_HOSTNAMES": "oit-medical-research-mcp.oit-medical-research-mcp.workers.dev",
+    "ALLOWED_ORIGIN_HOSTNAMES": "oit-medical-research-mcp.oit-medical-research-mcp.workers.dev"
   },
   "kv_namespaces": [
     {
