@@ -89,16 +89,22 @@ if (tools.join(",") !== "fetch,search") {
 
 const searchCall = await callMcp("tools/call", {
   name: "search",
-  arguments: { query: "semaglutide cardiovascular outcomes trial", limit: 3 }
+  arguments: {
+    query: "randomized controlled trials of exercise for knee osteoarthritis published from 2020 onward",
+    limit: 3
+  }
 });
 const firstContent = (searchCall.result?.content as Array<{ type?: string; text?: string }> | undefined)?.[0];
 if (firstContent?.type !== "text" || !firstContent.text) {
   throw new Error("Remote search did not return MCP text content.");
 }
-const search = JSON.parse(firstContent.text) as { results?: unknown[] };
+const search = JSON.parse(firstContent.text) as { results?: Array<{ title?: string }> };
 if (!search.results?.length) throw new Error("Remote search returned no literature results.");
 if (search.results.length !== 3) {
   throw new Error(`Remote search returned ${search.results.length} results; expected 3.`);
+}
+if (!search.results.every((result) => isKneeExerciseTrialTitle(result.title))) {
+  throw new Error("Remote search returned one or more weakly matched titles.");
 }
 
 console.log(
@@ -154,4 +160,14 @@ function parseMcpBody(body: string): unknown {
     .map((line) => line.slice("data: ".length));
   const payload = payloads.at(-1);
   return JSON.parse(payload ?? body);
+}
+
+function isKneeExerciseTrialTitle(title: string | undefined): boolean {
+  const normalized = title?.toLowerCase() ?? "";
+  return (
+    normalized.includes("knee") &&
+    (normalized.includes("exercise") || normalized.includes("physical therap")) &&
+    (normalized.includes("randomized") || normalized.includes("randomised")) &&
+    normalized.includes("trial")
+  );
 }

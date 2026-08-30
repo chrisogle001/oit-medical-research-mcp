@@ -36,7 +36,7 @@ MCP client
 
 Search results prefer PMCID, then PMID, then DOI, because PMCID is the strongest direct signal that lawful repository full text may exist. Fetch accepts any returned ID plus common PubMed, PMC, and DOI URLs.
 
-The resolver merges independent provider records by DOI, PMID, PMCID, and normalized title. It returns full text only when it comes from a lawful repository endpoint. Otherwise it returns an abstract or metadata plus the best legal access location.
+The resolver merges independent provider records by DOI, PMID, PMCID, and normalized title. Search keeps each provider's relevance order as a fallback, then re-ranks the combined set by meaningful query-title overlap and independent-provider agreement. It returns full text only when it comes from a lawful repository endpoint. Otherwise it returns an abstract or metadata plus the best legal access location.
 
 ## Account and authorization layer
 

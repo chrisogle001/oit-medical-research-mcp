@@ -120,14 +120,20 @@ try {
   if (tools.join(",") !== "fetch,search") throw new Error(`Unexpected tool catalog: ${tools.join(", ")}`);
   const searchCall = await callMcp("tools/call", {
     name: "search",
-    arguments: { query: "semaglutide cardiovascular outcomes trial", limit: 3 }
+    arguments: {
+      query: "randomized controlled trials of exercise for knee osteoarthritis published from 2020 onward",
+      limit: 3
+    }
   });
   const content = searchCall.result?.content?.[0];
   if (content?.type !== "text" || !content.text) throw new Error("Search returned no MCP text content.");
-  const search = JSON.parse(content.text) as { results?: Array<{ id?: string }> };
+  const search = JSON.parse(content.text) as { results?: Array<{ id?: string; title?: string }> };
   if (!search.results?.length) throw new Error("Authenticated literature search returned no results.");
   if (search.results.length !== 3) {
     throw new Error(`Authenticated literature search returned ${search.results.length} results; expected 3.`);
+  }
+  if (!search.results.every((result) => isKneeExerciseTrialTitle(result.title))) {
+    throw new Error("Authenticated literature search returned one or more weakly matched titles.");
   }
   const firstResultId = search.results[0]?.id;
   if (!firstResultId) throw new Error("Authenticated literature search returned a result without an ID.");
@@ -200,6 +206,16 @@ function parseMcpBody(body: string): unknown {
 
 function toBase64Url(value: Uint8Array): string {
   return Buffer.from(value).toString("base64url");
+}
+
+function isKneeExerciseTrialTitle(title: string | undefined): boolean {
+  const normalized = title?.toLowerCase() ?? "";
+  return (
+    normalized.includes("knee") &&
+    (normalized.includes("exercise") || normalized.includes("physical therap")) &&
+    (normalized.includes("randomized") || normalized.includes("randomised")) &&
+    normalized.includes("trial")
+  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {

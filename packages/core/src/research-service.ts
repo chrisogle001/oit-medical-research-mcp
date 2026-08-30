@@ -60,7 +60,7 @@ export class ResearchService {
       throw new Error("The medical literature sources are temporarily unavailable.");
     }
 
-    const results = deduplicateRecords(records)
+    const results = rankSearchRecords(deduplicateRecords(records), normalizedQuery)
       .filter(hasStableIdentifier)
       .slice(0, resultLimit)
       .map((record) => ({
@@ -157,6 +157,60 @@ async function settleWithConcurrency<Item, Result>(
 function hasStableIdentifier(record: ResearchRecord): boolean {
   const ids = record.identifiers;
   return Boolean(ids.pmcid || ids.pmid || ids.doi || (ids.epmcSource && ids.epmcId));
+}
+
+const SEARCH_STOP_WORDS = new Set([
+  "and",
+  "for",
+  "from",
+  "into",
+  "onward",
+  "published",
+  "research",
+  "study",
+  "studies",
+  "the",
+  "with"
+]);
+
+function rankSearchRecords(records: ResearchRecord[], query: string): ResearchRecord[] {
+  const queryTerms = relevanceTerms(query);
+  if (queryTerms.length === 0) return records;
+
+  return records
+    .map((record, index) => ({
+      index,
+      record,
+      score: searchRecordScore(record, queryTerms)
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ record }) => record);
+}
+
+function searchRecordScore(record: ResearchRecord, queryTerms: string[]): number {
+  const titleTerms = new Set(relevanceTerms(record.title));
+  const abstractTerms = new Set(relevanceTerms(record.abstract ?? ""));
+  const lexicalScore = queryTerms.reduce((score, term) => {
+    if (titleTerms.has(term)) return score + 12 + Math.min(term.length, 12);
+    if (abstractTerms.has(term)) return score + 3;
+    return score;
+  }, 0);
+  const providerAgreement = Math.max(0, new Set(record.providers).size - 1) * 2;
+  return lexicalScore + providerAgreement;
+}
+
+function relevanceTerms(value: string): string[] {
+  const terms = value.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return [...new Set(terms.map(normalizeSearchTerm).filter((term) => term.length > 2 && !SEARCH_STOP_WORDS.has(term)))];
+}
+
+function normalizeSearchTerm(term: string): string {
+  if (term === "randomised") return "randomized";
+  if (term.endsWith("ies") && term.length > 5) return `${term.slice(0, -3)}y`;
+  if (term.endsWith("s") && term.length > 4 && !term.endsWith("sis") && !term.endsWith("itis")) {
+    return term.slice(0, -1);
+  }
+  return term;
 }
 
 function metadataSummary(record: ResearchRecord): string {

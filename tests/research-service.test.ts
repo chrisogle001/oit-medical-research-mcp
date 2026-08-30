@@ -83,6 +83,42 @@ describe("ResearchService", () => {
     expect(result.results).toHaveLength(3);
   });
 
+  it("ranks title matches ahead of broad provider results", async () => {
+    const provider: ResearchProvider = {
+      name: "pubmed",
+      async search() {
+        return [
+          {
+            title: "Global perspectives in Qigong research",
+            identifiers: { pmid: "100" },
+            providers: ["pubmed"]
+          },
+          {
+            title: "Randomized controlled trial of exercise for knee osteoarthritis",
+            identifiers: { pmid: "200" },
+            providers: ["pubmed"]
+          },
+          {
+            title: "Inflammatory mechanisms in chronic musculoskeletal pain",
+            identifiers: { pmid: "300" },
+            providers: ["pubmed"]
+          }
+        ];
+      },
+      async fetch() {
+        return null;
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const result = await service.search(
+      "randomised controlled trials of exercise for knee osteoarthritis published from 2020 onward",
+      3
+    );
+
+    expect(result.results.map(({ id }) => id)).toEqual(["pmid:200", "pmid:100", "pmid:300"]);
+  });
+
   it("follows a discovered PMCID to lawful full text", async () => {
     const service = new ResearchService({ providers: [pubmed, europePmc] });
     const result = await service.fetch("pmid:123");
