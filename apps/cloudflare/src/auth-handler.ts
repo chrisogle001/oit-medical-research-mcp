@@ -193,10 +193,14 @@ async function continueClientAuthorization(request: Request, env: OAuthEnv): Pro
   }
 
   const session = await readSession(request, env.COOKIE_ENCRYPTION_KEY);
-  const response = session
+  const response = session && isOAuthSafeUserId(session.userId)
     ? await completeMcpAuthorization(env, oauthRequest, session)
     : await completePseudonymousMcpAuthorization(env, oauthRequest);
   return appendCookie(response, clearConsentCookie(consentState));
+}
+
+function isOAuthSafeUserId(userId: string): boolean {
+  return !userId.includes(":");
 }
 
 async function beginAccountLogin(request: Request, env: OAuthEnv): Promise<Response> {

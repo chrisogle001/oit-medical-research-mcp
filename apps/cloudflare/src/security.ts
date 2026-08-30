@@ -84,7 +84,7 @@ export function randomToken(): string {
 export function createPseudonymousUser(): AuthenticatedUser {
   const token = randomToken();
   return {
-    userId: `pseudonymous:${token}`,
+    userId: `pseudonymous_${token}`,
     login: `private-${token.slice(0, 12).toLowerCase()}`,
     displayName: "Private researcher",
     identityProvider: "pseudonymous"

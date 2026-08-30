@@ -6,6 +6,7 @@ if (!baseUrl) throw new Error("Pass the Cloudflare Worker base URL.");
 const metadata = await getJson<{
   authorization_endpoint: string;
   registration_endpoint: string;
+  token_endpoint: string;
 }>(`${baseUrl}/.well-known/oauth-authorization-server`);
 const registration = await postJson<{ client_id: string }>(metadata.registration_endpoint, {
   client_name: "OIT concurrent authorization smoke test",
@@ -15,9 +16,13 @@ const registration = await postJson<{ client_id: string }>(metadata.registration
   token_endpoint_auth_method: "none"
 });
 
-const attempts = [createAuthorizationUrl("first"), createAuthorizationUrl("second")];
-const expectedClientStates = attempts.map((attempt) => new URL(attempt).searchParams.get("state"));
-const pages = await Promise.all(attempts.map((url) => fetch(url, { redirect: "manual" })));
+const attempts = [createAuthorizationAttempt("first"), createAuthorizationAttempt("second")];
+const expectedClientStates = attempts.map((attempt) =>
+  new URL(attempt.url).searchParams.get("state")
+);
+const pages = await Promise.all(
+  attempts.map((attempt) => fetch(attempt.url, { redirect: "manual" }))
+);
 const pageBodies = await Promise.all(pages.map((response) => response.text()));
 const consentStates = pageBodies.map((body, index) => {
   if (pages[index]!.status !== 200) {
@@ -66,6 +71,9 @@ const authorizationCodes = approvals.map((response, index) => {
   if (redirect.searchParams.get("state") !== expectedClientStates[index]) {
     throw new Error(`Concurrent approval ${index + 1} returned the wrong client state.`);
   }
+  if (redirect.searchParams.get("iss") !== baseUrl) {
+    throw new Error(`Concurrent approval ${index + 1} returned the wrong authorization issuer.`);
+  }
   const code = redirect.searchParams.get("code");
   if (!code) throw new Error(`Concurrent approval ${index + 1} did not issue a code.`);
   const sessionCookie = response.headers
@@ -80,20 +88,30 @@ if (authorizationCodes[0] === authorizationCodes[1]) {
   throw new Error("Concurrent approvals reused the same authorization code.");
 }
 
+const accessTokens = await Promise.all(
+  authorizationCodes.map((code, index) => exchangeAuthorizationCode(code, attempts[index]!.verifier))
+);
+if (accessTokens[0] === accessTokens[1]) {
+  throw new Error("Concurrent authorization codes returned the same access token.");
+}
+await Promise.all(accessTokens.map((token) => verifyAuthenticatedMcpAccess(token)));
+
 console.log(
   JSON.stringify(
     {
       endpoint: baseUrl,
       concurrentAuthorizationPages: "isolated",
       concurrentConsentApprovals: "accepted",
-      concurrentPseudonymousAuthorizations: "isolated"
+      concurrentPseudonymousAuthorizations: "isolated",
+      pkceTokenExchange: "accepted",
+      authenticatedMcpAccess: "accepted"
     },
     null,
     2
   )
 );
 
-function createAuthorizationUrl(label: string): string {
+function createAuthorizationAttempt(label: string): { url: string; verifier: string } {
   const verifier = randomBytes(64).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const url = new URL(metadata.authorization_endpoint);
@@ -105,7 +123,55 @@ function createAuthorizationUrl(label: string): string {
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("resource", `${baseUrl}/mcp`);
-  return url.toString();
+  return { url: url.toString(), verifier };
+}
+
+async function exchangeAuthorizationCode(code: string, verifier: string): Promise<string> {
+  const response = await fetch(metadata.token_endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: registration.client_id,
+      redirect_uri: "https://client.example/callback",
+      code_verifier: verifier,
+      resource: `${baseUrl}/mcp`
+    })
+  });
+  if (!response.ok) {
+    const errorBody = (await response.text()).slice(0, 1_000);
+    throw new Error(
+      `OAuth token exchange failed with HTTP ${response.status}: ${errorBody || "empty response"}`
+    );
+  }
+  const payload = (await response.json()) as { access_token?: string };
+  if (!payload.access_token) throw new Error("OAuth token exchange returned no access token.");
+  return payload.access_token;
+}
+
+async function verifyAuthenticatedMcpAccess(accessToken: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "oit-concurrent-authorization-smoke-test", version: "0.1.0" }
+      }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Authenticated MCP initialization failed with HTTP ${response.status}.`);
+  }
 }
 
 async function getJson<T>(url: string): Promise<T> {

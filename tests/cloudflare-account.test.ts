@@ -140,7 +140,7 @@ describe("Cloudflare account controls", () => {
     );
     expect(completed).toMatchObject({
       request: oauthRequest,
-      userId: expect.stringMatching(/^pseudonymous:/u),
+      userId: expect.stringMatching(/^pseudonymous_/u),
       scope: ["mcp:research"],
       props: {
         identityProvider: "pseudonymous",
@@ -152,6 +152,80 @@ describe("Cloudflare account controls", () => {
     );
     expect(response.headers.get("Set-Cookie")).toContain(
       `__Host-MEDICAL_RESEARCH_CONSENT_${consentState}=`
+    );
+  });
+
+  it("replaces a legacy pseudonymous session before issuing an OAuth code", async () => {
+    const storage = new MemoryKv();
+    const oauthRequest: OAuthAuthorizationRequest = {
+      responseType: "code",
+      clientId: "chatgpt-client",
+      redirectUri: "https://chatgpt.com/connector_platform_oauth_redirect",
+      scope: ["mcp:research"],
+      state: "client-state",
+      codeChallenge: "code-challenge",
+      codeChallengeMethod: "S256"
+    };
+    const consent = cookiePair(
+      await storeConsentRequest(
+        storage as unknown as KVNamespace,
+        consentState,
+        oauthRequest,
+        cookieSecret
+      )
+    );
+    const legacySession = cookiePair(
+      await createSessionCookie(
+        {
+          userId: "pseudonymous:legacy-user",
+          login: "private-legacy-user",
+          displayName: "Private researcher",
+          identityProvider: "pseudonymous"
+        },
+        cookieSecret
+      )
+    );
+    let completed: CompleteAuthorizationOptions | null = null;
+    let completedUserId = "";
+    const request = new Request(
+      `https://example.workers.dev/authorize?consent_state=${consentState}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${consent}; ${legacySession}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({ decision: "approve" })
+      }
+    );
+
+    const response = await authHandler.fetch(
+      request as AuthRequest,
+      testEnv(storage, {
+        async lookupClient(clientId) {
+          return {
+            clientId,
+            clientName: "ChatGPT",
+            redirectUris: [oauthRequest.redirectUri],
+            tokenEndpointAuthMethod: "none"
+          };
+        },
+        async completeAuthorization(options) {
+          completed = options;
+          completedUserId = options.userId;
+          return { redirectTo: `${oauthRequest.redirectUri}?code=issued` };
+        }
+      }, false)
+    );
+
+    expect(response.status).toBe(302);
+    expect(completed).toMatchObject({
+      userId: expect.stringMatching(/^pseudonymous_/u),
+      props: { identityProvider: "pseudonymous" }
+    });
+    expect(completedUserId).not.toContain(":");
+    expect(response.headers.get("Set-Cookie")).toContain(
+      "__Host-MEDICAL_RESEARCH_SESSION="
     );
   });
 
@@ -224,7 +298,7 @@ describe("Cloudflare account controls", () => {
     const session = cookiePair(
       await createSessionCookie(
         {
-          userId: "pseudonymous:test-user",
+          userId: "pseudonymous_test-user",
           login: "private-test-user",
           displayName: "Private researcher",
           identityProvider: "pseudonymous"
@@ -408,7 +482,7 @@ describe("Cloudflare account controls", () => {
         "https://claude.example/callback?code=recovered"
       );
       expect(completed).toMatchObject({
-        userId: expect.stringMatching(/^pseudonymous:/u),
+        userId: expect.stringMatching(/^pseudonymous_/u),
         props: { identityProvider: "pseudonymous" }
       });
       expect(response.headers.get("Set-Cookie")).toContain(
