@@ -116,7 +116,8 @@ console.log(
       concurrentConsentApprovals: "accepted",
       concurrentPseudonymousAuthorizations: "isolated",
       pkceTokenExchange: "accepted",
-      authenticatedMcpAccess: "accepted"
+      authenticatedMcpAccess: "accepted",
+      structuredToolOutputs: "advertised"
     },
     null,
     2
@@ -174,27 +175,57 @@ async function exchangeAuthorizationCode(code: string, verifier: string): Promis
 }
 
 async function verifyAuthenticatedMcpAccess(accessToken: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/mcp`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json, text/event-stream",
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "oit-concurrent-authorization-smoke-test", version: "0.1.0" }
-      }
-    })
+  let requestId = 1;
+  const callMcp = async (method: string, params: Record<string, unknown>) => {
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: requestId++, method, params })
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      throw new Error(`Authenticated MCP ${method} failed with HTTP ${response.status}.`);
+    }
+    return parseMcpBody(body) as {
+      result?: {
+        serverInfo?: { name?: string };
+        tools?: Array<{ name?: string; outputSchema?: unknown }>;
+      };
+    };
+  };
+
+  const initialized = await callMcp("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "oit-concurrent-authorization-smoke-test", version: "0.1.0" }
   });
-  if (!response.ok) {
-    throw new Error(`Authenticated MCP initialization failed with HTTP ${response.status}.`);
+  if (initialized.result?.serverInfo?.name !== "OIT - Medical Research MCP") {
+    throw new Error("Authenticated MCP initialization returned an unexpected server identity.");
   }
+
+  const catalog = await callMcp("tools/list", {});
+  const tools = catalog.result?.tools ?? [];
+  for (const toolName of ["search", "citations", "annotations", "fetch"]) {
+    const tool = tools.find((candidate) => candidate.name === toolName);
+    const properties = (
+      tool?.outputSchema as { properties?: Record<string, unknown> } | undefined
+    )?.properties;
+    if (!properties || !properties.providerDiagnostics) {
+      throw new Error(`Authenticated MCP catalog omitted the ${toolName} structured output schema.`);
+    }
+  }
+}
+
+function parseMcpBody(body: string): unknown {
+  const payloads = body
+    .split("\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => line.slice("data: ".length));
+  return JSON.parse(payloads.at(-1) ?? body);
 }
 
 async function getJson<T>(url: string): Promise<T> {

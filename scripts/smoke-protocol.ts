@@ -35,6 +35,7 @@ try {
   if (fromYearSchema?.minimum !== 1800 || fromYearSchema.maximum !== 2100) {
     throw new Error("The search tool advertised an unstable publication-year range.");
   }
+  assertOutputSchema(searchTool, "search", ["results", "providerDiagnostics"]);
   const fetchTool = tools.tools.find((tool) => tool.name === "fetch");
   const fetchProperties = (
     fetchTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
@@ -64,6 +65,13 @@ try {
   if (directionSchema?.enum?.join(",") !== "references,citedBy") {
     throw new Error("The citations tool did not advertise both citation directions.");
   }
+  assertOutputSchema(citationsTool, "citations", [
+    "article",
+    "direction",
+    "total",
+    "results",
+    "providerDiagnostics"
+  ]);
   const annotationsTool = tools.tools.find((tool) => tool.name === "annotations");
   const annotationProperties = (
     annotationsTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
@@ -72,6 +80,14 @@ try {
   if (annotationInputs.join(",") !== "id,limit,providers,sections,types") {
     throw new Error("The annotations tool did not advertise the expected bounded filters.");
   }
+  assertOutputSchema(annotationsTool, "annotations", [
+    "article",
+    "source",
+    "total",
+    "annotations",
+    "disclaimer",
+    "providerDiagnostics"
+  ]);
   console.log(
     JSON.stringify(
       {
@@ -80,7 +96,8 @@ try {
         searchInputs: expectedSearchInputs,
         fetchInputs,
         citationDirections: directionSchema.enum,
-        annotationInputs
+        annotationInputs,
+        structuredOutputs: names
       },
       null,
       2
@@ -88,4 +105,19 @@ try {
   );
 } finally {
   await client.close();
+}
+
+function assertOutputSchema(
+  tool: { outputSchema?: unknown } | undefined,
+  toolName: string,
+  expectedProperties: string[]
+): void {
+  const properties = (
+    tool?.outputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  for (const property of expectedProperties) {
+    if (!properties?.[property]) {
+      throw new Error(`The ${toolName} tool did not advertise ${property} in its output schema.`);
+    }
+  }
 }

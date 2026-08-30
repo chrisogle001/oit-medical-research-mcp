@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import {
   ResearchService,
-  type FetchResponse,
   type ResearchServiceOptions
 } from "@oit-medical-research/core";
 import { z } from "zod";
@@ -90,6 +89,28 @@ const ProviderDiagnosticsOutput = z.object({
   failed: z.array(ProviderNameOutput),
   partialFailure: z.boolean()
 });
+const SearchResultOutput = z.object({
+  id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  identifiers: ArticleIdentifiersOutput,
+  providers: z.array(ProviderNameOutput),
+  authors: z.array(z.string()).optional(),
+  publicationTypes: z.array(z.string()).optional(),
+  isPreprint: z.boolean(),
+  isRetracted: z.boolean(),
+  statusWarnings: z.array(z.string()).optional(),
+  journal: z.string().optional(),
+  publicationDate: z.string().optional(),
+  isOpenAccess: z.boolean().optional(),
+  fullTextAvailable: z.boolean(),
+  fullTextStatus: FullTextStatusOutput,
+  citationCount: z.number().optional()
+});
+const SearchOutput = z.object({
+  results: z.array(SearchResultOutput),
+  providerDiagnostics: ProviderDiagnosticsOutput
+});
 const FetchMetadataOutput = z.object({
   identifiers: ArticleIdentifiersOutput,
   authors: z.array(z.string()).optional(),
@@ -141,6 +162,13 @@ const CitationsInput = z.object({
     .optional()
     .describe("Maximum number of normalized citation records to return. Defaults to the server limit.")
 });
+const CitationsOutput = z.object({
+  article: SearchResultOutput,
+  direction: z.enum(["references", "citedBy"]),
+  total: z.number().int().nonnegative(),
+  results: z.array(SearchResultOutput),
+  providerDiagnostics: ProviderDiagnosticsOutput
+});
 
 const AnnotationFilter = z
   .array(z.string().trim().min(1).max(100))
@@ -170,12 +198,35 @@ const AnnotationsInput = z.object({
     "Optional text-mining providers, such as Europe PMC, OpenTargets, DisGeNET, or PubTator_NCBI."
   )
 });
+const AnnotationTagOutput = z.object({
+  name: z.string(),
+  uri: z.string().optional()
+});
+const ResearchAnnotationOutput = z.object({
+  text: z.string(),
+  type: z.string(),
+  section: z.string().optional(),
+  sectionUri: z.string().optional(),
+  provider: z.string().optional(),
+  prefix: z.string().optional(),
+  postfix: z.string().optional(),
+  tags: z.array(AnnotationTagOutput),
+  url: z.string().optional()
+});
+const AnnotationsOutput = z.object({
+  article: SearchResultOutput,
+  source: z.literal("europe-pmc"),
+  total: z.number().int().nonnegative(),
+  annotations: z.array(ResearchAnnotationOutput),
+  disclaimer: z.string(),
+  providerDiagnostics: ProviderDiagnosticsOutput
+});
 
 export function createMedicalResearchMcpServer(options: ResearchServiceOptions = {}): McpServer {
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.7"
+    version: "0.6.8"
   });
 
   server.registerTool(
@@ -185,6 +236,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
       description:
         "Search PubMed, PubMed Central, Europe PMC, and Crossref for medical literature. Supports publication-year, journal, and repository-full-text filters and returns deduplicated records with reconciled authors, explicit full-text status, provider contribution diagnostics, publication types, preprint and retraction warnings, and stable IDs for use with fetch.",
       inputSchema: SearchInput,
+      outputSchema: SearchOutput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -210,6 +262,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
       description:
         "Retrieve papers referenced by an article or papers that cite it through Europe PMC's open citation network. Returns normalized, stable article IDs, provider diagnostics, publication types, and preprint or retraction warnings for follow-up fetch or citation calls.",
       inputSchema: CitationsInput,
+      outputSchema: CitationsOutput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -227,6 +280,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
       description:
         "Retrieve bounded, text-mined biomedical mentions for one article from Europe PMC, optionally filtered by annotation type, article section, or provider. Results include provider diagnostics, surrounding context and linked database entities, plus a warning that annotations may be incomplete or incorrect.",
       inputSchema: AnnotationsInput,
+      outputSchema: AnnotationsOutput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -260,7 +314,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
       }
     },
     async ({ id, includeText, textLimit }) =>
-      fetchToolResult(() =>
+      toolResult(() =>
         service.fetch(id, {
           ...(includeText !== undefined ? { includeText } : {}),
           ...(textLimit !== undefined ? { textLimit } : {})
@@ -271,9 +325,10 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   return server;
 }
 
-async function fetchToolResult(operation: () => Promise<FetchResponse>) {
+async function toolResult<T>(operation: () => Promise<T>) {
   try {
     const value = await operation();
+    if (!isRecord(value)) throw new Error("The research tool returned an invalid result.");
     return {
       content: [{ type: "text" as const, text: JSON.stringify(value) }],
       structuredContent: value
@@ -287,17 +342,6 @@ async function fetchToolResult(operation: () => Promise<FetchResponse>) {
   }
 }
 
-async function toolResult<T>(operation: () => Promise<T>) {
-  try {
-    const value = await operation();
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(value) }]
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "The research request failed.";
-    return {
-      isError: true,
-      content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }]
-    };
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
