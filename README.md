@@ -66,7 +66,7 @@ The first deployment creates separate OAuth and encrypted-user-settings KV bindi
 
 Ogle IT Services hosts the production deployment at [oit-medical-research-mcp.oit-medical-research-mcp.workers.dev](https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev). Its remote MCP endpoint is `/mcp`; independent installations continue to use their own Cloudflare and GitHub accounts.
 
-Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent flow. A valid eight-hour browser session is reused, so GitHub identity verification happens only when the user is not already signed in.
+Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent flow. Concurrent client connection attempts are isolated with short-lived per-request state. A valid eight-hour browser session is reused, so GitHub identity verification happens only when the user is not already signed in.
 
 For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as comma-separated Worker variables. Browser Origins remain validated by default.
 

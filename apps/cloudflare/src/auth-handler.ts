@@ -16,17 +16,17 @@ import {
   clearCsrfCookie,
   clearOAuthStateCookie,
   clearSessionCookie,
-  createConsentCookie,
+  consumeConsentRequest,
+  consumeOAuthFlow,
   createCsrfCookie,
-  createOAuthStateCookie,
   createSessionCookie,
   randomToken,
-  readConsentCookie,
   readSession,
+  storeConsentRequest,
+  storeOAuthFlow,
   type AuthenticatedUser,
   type PendingOAuthFlow,
-  validateCsrf,
-  validateOAuthStateCookie
+  validateCsrf
 } from "./security.js";
 import {
   deleteUserProviderSettings,
@@ -121,10 +121,20 @@ async function beginClientAuthorization(request: Request, env: OAuthEnv): Promis
   try {
     response.headers.append(
       "Set-Cookie",
-      await createConsentCookie(consentState, oauthRequest, env.COOKIE_ENCRYPTION_KEY)
+      await storeConsentRequest(
+        env.OAUTH_KV,
+        consentState,
+        oauthRequest,
+        env.COOKIE_ENCRYPTION_KEY
+      )
     );
   } catch {
-    return renderError("Authorization request too large", "The MCP client sent too much authorization data.");
+    logAuthorizationStateFailure("oauth_consent_state_store_failed", "storage_error");
+    return renderError(
+      "Authorization temporarily unavailable",
+      "The authorization request could not be saved. Please try connecting again.",
+      503
+    );
   }
   return response;
 }
@@ -140,25 +150,44 @@ async function continueClientAuthorization(request: Request, env: OAuthEnv): Pro
     return renderError("Invalid authorization form", "Please restart the connection from your MCP client.");
   }
 
-  const oauthRequest = await readConsentCookie(
-    request,
-    consentState,
-    env.COOKIE_ENCRYPTION_KEY
-  );
-  if (!oauthRequest) {
-    return renderError("Authorization request expired", "Please restart the connection from your MCP client.");
+  let consentResult: Awaited<ReturnType<typeof consumeConsentRequest>>;
+  try {
+    consentResult = await consumeConsentRequest(
+      request,
+      env.OAUTH_KV,
+      consentState,
+      env.COOKIE_ENCRYPTION_KEY
+    );
+  } catch {
+    logAuthorizationStateFailure("oauth_consent_state_rejected", "storage_error");
+    return appendConsentCookieIfValid(
+      renderError(
+        "Authorization temporarily unavailable",
+        "The authorization request could not be checked. Please try connecting again.",
+        503
+      ),
+      consentState
+    );
   }
+  if (!consentResult.ok) {
+    logAuthorizationStateFailure("oauth_consent_state_rejected", consentResult.reason);
+    return appendConsentCookieIfValid(
+      renderError("Authorization request expired", "Please restart the connection from your MCP client."),
+      consentState
+    );
+  }
+  const oauthRequest = consentResult.value;
 
   if (decision === "deny") {
     return appendCookie(
       redirectAuthorizationError(oauthRequest, "access_denied", "You declined access."),
-      clearConsentCookie()
+      clearConsentCookie(consentState)
     );
   }
   if (decision !== "approve") {
     return appendCookie(
       renderError("Invalid request", "No authorization choice was provided."),
-      clearConsentCookie()
+      clearConsentCookie(consentState)
     );
   }
 
@@ -166,7 +195,7 @@ async function continueClientAuthorization(request: Request, env: OAuthEnv): Pro
   const response = session
     ? await completeMcpAuthorization(env, oauthRequest, session)
     : await startGitHubFlow(request, env, { kind: "mcp", request: oauthRequest });
-  return appendCookie(response, clearConsentCookie());
+  return appendCookie(response, clearConsentCookie(consentState));
 }
 
 async function beginAccountLogin(request: Request, env: OAuthEnv): Promise<Response> {
@@ -192,10 +221,15 @@ async function startGitHubFlow(
   try {
     response.headers.append(
       "Set-Cookie",
-      await createOAuthStateCookie(state, flow, env.COOKIE_ENCRYPTION_KEY)
+      await storeOAuthFlow(env.OAUTH_KV, state, flow, env.COOKIE_ENCRYPTION_KEY)
     );
   } catch {
-    return renderError("Authorization request too large", "The MCP client sent too much authorization data.");
+    logAuthorizationStateFailure("github_oauth_state_store_failed", "storage_error");
+    return renderError(
+      "Sign-in temporarily unavailable",
+      "The sign-in request could not be saved. Please try again.",
+      503
+    );
   }
   return response;
 }
@@ -205,15 +239,38 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
   if (configurationError) return configurationError;
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
-  const flow = state
-    ? await validateOAuthStateCookie(request, state, env.COOKIE_ENCRYPTION_KEY)
-    : null;
-  if (!state || !flow) {
-    return appendCookie(
-      renderError("Sign-in expired", "The browser session could not be matched to this sign-in."),
-      clearOAuthStateCookie()
+  if (!state) {
+    logAuthorizationStateFailure("github_oauth_state_rejected", "missing_state");
+    return renderError("Sign-in expired", "The browser session could not be matched to this sign-in.");
+  }
+
+  let flowResult: Awaited<ReturnType<typeof consumeOAuthFlow>>;
+  try {
+    flowResult = await consumeOAuthFlow(
+      request,
+      env.OAUTH_KV,
+      state,
+      env.COOKIE_ENCRYPTION_KEY
+    );
+  } catch {
+    logAuthorizationStateFailure("github_oauth_state_rejected", "storage_error");
+    return appendOAuthCookieIfValid(
+      renderError(
+        "Sign-in temporarily unavailable",
+        "The browser session could not be checked. Please try connecting again.",
+        503
+      ),
+      state
     );
   }
+  if (!flowResult.ok) {
+    logAuthorizationStateFailure("github_oauth_state_rejected", flowResult.reason);
+    return appendOAuthCookieIfValid(
+      renderError("Sign-in expired", "The browser session could not be matched to this sign-in."),
+      state
+    );
+  }
+  const flow = flowResult.value;
 
   const upstreamError = url.searchParams.get("error");
   if (upstreamError) {
@@ -221,14 +278,14 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
       flow.kind === "mcp"
         ? redirectAuthorizationError(flow.request, "access_denied", "GitHub sign-in was not completed.")
         : renderError("Sign-in cancelled", "GitHub sign-in was not completed.");
-    return appendCookie(response, clearOAuthStateCookie());
+    return appendCookie(response, clearOAuthStateCookie(state));
   }
 
   const code = url.searchParams.get("code");
   if (!code) {
     return appendCookie(
       renderError("Invalid callback", "GitHub did not provide an authorization code."),
-      clearOAuthStateCookie()
+      clearOAuthStateCookie(state)
     );
   }
   const tokenResult = await exchangeGitHubCode(
@@ -250,7 +307,7 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
         githubOAuthFailureMessage(tokenResult.reason),
         tokenResult.reason === "rate_limited" ? 503 : 502
       ),
-      clearOAuthStateCookie()
+      clearOAuthStateCookie(state)
     );
   }
   const user = await fetchGitHubUser(tokenResult.accessToken);
@@ -261,7 +318,7 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
         "The signed-in GitHub profile could not be read.",
         502
       ),
-      clearOAuthStateCookie()
+      clearOAuthStateCookie(state)
     );
   }
 
@@ -271,13 +328,13 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
     headers.append("Set-Cookie", sessionCookie);
     return appendCookie(
       new Response(null, { status: 302, headers }),
-      clearOAuthStateCookie()
+      clearOAuthStateCookie(state)
     );
   }
 
   return appendCookie(
     await completeMcpAuthorization(env, flow.request, user, sessionCookie),
-    clearOAuthStateCookie()
+    clearOAuthStateCookie(state)
   );
 }
 
@@ -651,6 +708,26 @@ function redirectResponse(location: string, status = 302): Response {
 function appendCookie(response: Response, cookie: string): Response {
   response.headers.append("Set-Cookie", cookie);
   return response;
+}
+
+function appendConsentCookieIfValid(response: Response, state: string): Response {
+  try {
+    return appendCookie(response, clearConsentCookie(state));
+  } catch {
+    return response;
+  }
+}
+
+function appendOAuthCookieIfValid(response: Response, state: string): Response {
+  try {
+    return appendCookie(response, clearOAuthStateCookie(state));
+  } catch {
+    return response;
+  }
+}
+
+function logAuthorizationStateFailure(event: string, reason: string): void {
+  console.warn(JSON.stringify({ event, reason }));
 }
 
 function validateConfiguration(env: OAuthEnv): Response | null {

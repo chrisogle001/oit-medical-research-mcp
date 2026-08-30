@@ -2,9 +2,12 @@ import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 
 const encoder = new TextEncoder();
 const SESSION_COOKIE = "__Host-MEDICAL_RESEARCH_SESSION";
-const OAUTH_STATE_COOKIE = "__Host-MEDICAL_RESEARCH_OAUTH_STATE";
-const CONSENT_COOKIE = "__Host-MEDICAL_RESEARCH_CONSENT";
+const OAUTH_STATE_COOKIE_PREFIX = "__Host-MEDICAL_RESEARCH_OAUTH_STATE_";
+const CONSENT_COOKIE_PREFIX = "__Host-MEDICAL_RESEARCH_CONSENT_";
 const CSRF_COOKIE = "__Host-MEDICAL_RESEARCH_CSRF";
+const CONSENT_STATE_KEY_PREFIX = "medical-research:oauth:consent:";
+const OAUTH_FLOW_KEY_PREFIX = "medical-research:oauth:github:";
+const STATE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/u;
 const TEN_MINUTES = 600;
 const EIGHT_HOURS = 28_800;
 
@@ -41,17 +44,27 @@ interface SessionPayload extends AuthenticatedUser {
   expiresAt: number;
 }
 
-interface ConsentPayload {
-  state: string;
+interface StoredConsentPayload {
   request: AuthRequest;
   expiresAt: number;
 }
 
-interface OAuthFlowPayload {
-  state: string;
+interface StoredOAuthFlowPayload {
   flow: PendingOAuthFlow;
   expiresAt: number;
 }
+
+export type AuthorizationStateFailureReason =
+  | "invalid_state"
+  | "missing_binding"
+  | "invalid_binding"
+  | "missing_record"
+  | "invalid_record"
+  | "expired";
+
+export type AuthorizationStateResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: AuthorizationStateFailureReason };
 
 export type PendingOAuthFlow =
   | { kind: "mcp"; request: AuthRequest }
@@ -71,41 +84,59 @@ export function clearCsrfCookie(): string {
   return clearCookie(CSRF_COOKIE);
 }
 
-export async function createConsentCookie(
+export async function storeConsentRequest(
+  kv: KVNamespace,
   state: string,
   request: AuthRequest,
   secret: string,
   now = Date.now()
 ): Promise<string> {
-  return serializeSignedCookie(
-    CONSENT_COOKIE,
-    { state, request, expiresAt: Math.floor(now / 1000) + TEN_MINUTES },
-    secret,
-    TEN_MINUTES
-  );
+  assertValidStateToken(state);
+  const payload: StoredConsentPayload = {
+    request,
+    expiresAt: Math.floor(now / 1000) + TEN_MINUTES
+  };
+  await kv.put(`${CONSENT_STATE_KEY_PREFIX}${state}`, JSON.stringify(payload), {
+    expirationTtl: TEN_MINUTES
+  });
+  return createStateBindingCookie(CONSENT_COOKIE_PREFIX, state, secret);
 }
 
-export function clearConsentCookie(): string {
-  return clearCookie(CONSENT_COOKIE);
+export function clearConsentCookie(state: string): string {
+  return clearCookie(stateCookieName(CONSENT_COOKIE_PREFIX, state));
 }
 
-export async function readConsentCookie(
+export async function consumeConsentRequest(
   request: Request,
-  expectedState: string,
+  kv: KVNamespace,
+  state: string,
   secret: string,
   now = Date.now()
-): Promise<AuthRequest | null> {
-  const parsed = await readSignedCookie(request, CONSENT_COOKIE, secret);
-  if (
-    !isRecord(parsed) ||
-    parsed.state !== expectedState ||
-    typeof parsed.expiresAt !== "number" ||
-    parsed.expiresAt <= Math.floor(now / 1000) ||
-    !isAuthRequest(parsed.request)
-  ) {
-    return null;
+): Promise<AuthorizationStateResult<AuthRequest>> {
+  const binding = await validateStateBindingCookie(
+    request,
+    CONSENT_COOKIE_PREFIX,
+    state,
+    secret
+  );
+  if (!binding.ok) return binding;
+
+  const key = `${CONSENT_STATE_KEY_PREFIX}${state}`;
+  const stored = await kv.get(key);
+  if (!stored) return { ok: false, reason: "missing_record" };
+  await kv.delete(key);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return { ok: false, reason: "invalid_record" };
   }
-  return parsed.request;
+  if (!isRecord(parsed) || typeof parsed.expiresAt !== "number" || !isAuthRequest(parsed.request)) {
+    return { ok: false, reason: "invalid_record" };
+  }
+  if (parsed.expiresAt <= Math.floor(now / 1000)) return { ok: false, reason: "expired" };
+  return { ok: true, value: parsed.request };
 }
 
 export async function validateCsrf(request: Request, suppliedToken: string): Promise<boolean> {
@@ -114,40 +145,60 @@ export async function validateCsrf(request: Request, suppliedToken: string): Pro
   return timingSafeStringEqual(suppliedToken, cookieToken);
 }
 
-export async function createOAuthStateCookie(
+export async function storeOAuthFlow(
+  kv: KVNamespace,
   state: string,
   flow: PendingOAuthFlow,
   secret: string,
   now = Date.now()
 ): Promise<string> {
-  return serializeSignedCookie(
-    OAUTH_STATE_COOKIE,
-    { state, flow, expiresAt: Math.floor(now / 1000) + TEN_MINUTES },
-    secret,
-    TEN_MINUTES
-  );
+  assertValidStateToken(state);
+  const payload: StoredOAuthFlowPayload = {
+    flow,
+    expiresAt: Math.floor(now / 1000) + TEN_MINUTES
+  };
+  await kv.put(`${OAUTH_FLOW_KEY_PREFIX}${state}`, JSON.stringify(payload), {
+    expirationTtl: TEN_MINUTES
+  });
+  return createStateBindingCookie(OAUTH_STATE_COOKIE_PREFIX, state, secret);
 }
 
-export function clearOAuthStateCookie(): string {
-  return clearCookie(OAUTH_STATE_COOKIE);
+export function clearOAuthStateCookie(state: string): string {
+  return clearCookie(stateCookieName(OAUTH_STATE_COOKIE_PREFIX, state));
 }
 
-export async function validateOAuthStateCookie(
+export async function consumeOAuthFlow(
   request: Request,
+  kv: KVNamespace,
   state: string,
   secret: string,
   now = Date.now()
-): Promise<PendingOAuthFlow | null> {
-  const parsed = await readSignedCookie(request, OAUTH_STATE_COOKIE, secret);
-  if (
-    !isRecord(parsed) ||
-    parsed.state !== state ||
-    typeof parsed.expiresAt !== "number" ||
-    parsed.expiresAt <= Math.floor(now / 1000)
-  ) {
-    return null;
+): Promise<AuthorizationStateResult<PendingOAuthFlow>> {
+  const binding = await validateStateBindingCookie(
+    request,
+    OAUTH_STATE_COOKIE_PREFIX,
+    state,
+    secret
+  );
+  if (!binding.ok) return binding;
+
+  const key = `${OAUTH_FLOW_KEY_PREFIX}${state}`;
+  const stored = await kv.get(key);
+  if (!stored) return { ok: false, reason: "missing_record" };
+  await kv.delete(key);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return { ok: false, reason: "invalid_record" };
   }
-  return parsePendingOAuthFlow(JSON.stringify(parsed.flow));
+  if (!isRecord(parsed) || typeof parsed.expiresAt !== "number") {
+    return { ok: false, reason: "invalid_record" };
+  }
+  if (parsed.expiresAt <= Math.floor(now / 1000)) return { ok: false, reason: "expired" };
+  const flow = parsePendingOAuthFlow(JSON.stringify(parsed.flow));
+  return flow ? { ok: true, value: flow } : { ok: false, reason: "invalid_record" };
 }
 
 export async function createSessionCookie(
@@ -281,32 +332,43 @@ async function sign(value: string, secret: string): Promise<string> {
   return toBase64Url(new Uint8Array(signature));
 }
 
-async function serializeSignedCookie(
-  name: string,
-  payload: ConsentPayload | OAuthFlowPayload,
-  secret: string,
-  maxAge: number
+async function createStateBindingCookie(
+  prefix: string,
+  state: string,
+  secret: string
 ): Promise<string> {
-  const encoded = toBase64Url(encoder.encode(JSON.stringify(payload)));
-  const value = `${encoded}.${await sign(encoded, secret)}`;
-  const cookie = serializeCookie(name, value, maxAge);
-  if (cookie.length > 4_096) throw new Error("Signed browser state exceeds the cookie size limit.");
-  return cookie;
+  const name = stateCookieName(prefix, state);
+  const signature = await sign(`${prefix}:${state}`, secret);
+  return serializeCookie(name, signature, TEN_MINUTES);
 }
 
-async function readSignedCookie(request: Request, name: string, secret: string): Promise<unknown> {
-  const value = readCookie(request, name);
-  if (!value) return null;
-  const separator = value.lastIndexOf(".");
-  if (separator <= 0) return null;
-  const encoded = value.slice(0, separator);
-  const suppliedSignature = value.slice(separator + 1);
-  if (!(await timingSafeStringEqual(suppliedSignature, await sign(encoded, secret)))) return null;
-  try {
-    return JSON.parse(new TextDecoder().decode(fromBase64Url(encoded)));
-  } catch {
-    return null;
+async function validateStateBindingCookie(
+  request: Request,
+  prefix: string,
+  state: string,
+  secret: string
+): Promise<AuthorizationStateResult<never>> {
+  if (!isValidStateToken(state)) return { ok: false, reason: "invalid_state" };
+  const suppliedSignature = readCookie(request, stateCookieName(prefix, state));
+  if (!suppliedSignature) return { ok: false, reason: "missing_binding" };
+  const expectedSignature = await sign(`${prefix}:${state}`, secret);
+  if (!(await timingSafeStringEqual(suppliedSignature, expectedSignature))) {
+    return { ok: false, reason: "invalid_binding" };
   }
+  return { ok: true, value: undefined as never };
+}
+
+function stateCookieName(prefix: string, state: string): string {
+  assertValidStateToken(state);
+  return `${prefix}${state}`;
+}
+
+function assertValidStateToken(state: string): void {
+  if (!isValidStateToken(state)) throw new Error("Invalid OAuth state token.");
+}
+
+function isValidStateToken(state: string): boolean {
+  return STATE_TOKEN_PATTERN.test(state);
 }
 
 async function sha256(value: string): Promise<Uint8Array> {

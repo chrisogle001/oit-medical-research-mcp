@@ -5,7 +5,7 @@
 - Local stdio inherits the permissions and environment of the person running it.
 - The Cloudflare MCP endpoint requires an OAuth access token issued for that exact MCP resource. Anonymous requests return HTTP 401 with standards-based discovery metadata.
 - GitHub establishes user identity after an explicit MCP-client consent screen. The GitHub access token is discarded after the profile lookup and is never stored in MCP grants or exposed to tools.
-- Consent and GitHub OAuth state are random, short-lived, and bound to the browser in HMAC-protected `__Host-` cookies, avoiding immediate-read races in distributed KV. OAuth callback state is cleared on success or failure so a callback cannot be replayed by reloading it. Consent remains a POST action; account mutations use separate short-lived CSRF cookies.
+- Consent and GitHub OAuth state are random, short-lived, and stored under namespaced per-request keys in `OAUTH_KV`. Each record is bound to the initiating browser with its own HMAC-protected `__Host-` cookie, so overlapping authorization attempts cannot overwrite one another. Validated records are deleted when consumed, and the matching cookie is cleared on success or failure. Consent remains a POST action; account mutations use a separate short-lived CSRF cookie.
 - Account sessions are short-lived and HMAC-signed. A valid session completes later MCP consent requests without repeating the upstream GitHub token exchange. Users can list and revoke their MCP client grants from `/account`.
 - Protected MCP requests require the `mcp:research` scope. Research tool calls are limited to 30 per account per minute and oversized MCP request bodies are rejected before protocol parsing.
 - Provider fan-out is capped at three concurrent provider operations per research request.
@@ -31,7 +31,7 @@ Hosted users can remove their personal NCBI key or delete hosted account data fr
 
 Retention defaults are:
 
-- Consent and GitHub flow cookies: 10 minutes.
+- Consent and GitHub flow records and browser-binding cookies: 10 minutes.
 - Account session cookie: 8 hours.
 - OAuth access token: 1 hour.
 - OAuth refresh token and grant: 30 days.

@@ -1,6 +1,6 @@
 {
   "name": "oit-medical-research-mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Portable medical literature research MCP server for local and Cloudflare deployments.",
   "type": "module",
@@ -27,6 +27,7 @@
     "smoke:providers": "tsx scripts/smoke-providers.ts",
     "smoke:cloudflare": "tsx scripts/smoke-cloudflare.ts",
     "smoke:oauth": "tsx scripts/smoke-oauth.ts",
+    "smoke:oauth-concurrency": "tsx scripts/smoke-oauth-concurrency.ts",
     "smoke:protocol": "npm run build && tsx scripts/smoke-protocol.ts",
     "start:local": "tsx apps/local/src/index.ts",
     "dev:cloudflare": "wrangler dev --config apps/cloudflare/wrangler.jsonc",

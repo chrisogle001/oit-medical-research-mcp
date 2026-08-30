@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "oit-medical-research-mcp",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-29",
+  "compatibility_date": "2026-08-30",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "observability": {
     "enabled": true,

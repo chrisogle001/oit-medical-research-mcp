@@ -6,10 +6,10 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { authHandler } from "../apps/cloudflare/src/auth-handler.js";
 import {
-  createConsentCookie,
   createCsrfCookie,
-  createOAuthStateCookie,
-  createSessionCookie
+  createSessionCookie,
+  storeConsentRequest,
+  storeOAuthFlow
 } from "../apps/cloudflare/src/security.js";
 import {
   readUserProviderSettings,
@@ -19,6 +19,8 @@ import {
 const cookieSecret = "a-cookie-signing-secret-that-is-longer-than-thirty-two-characters";
 const userDataSecret = "a-user-data-secret-that-is-also-longer-than-thirty-two-characters";
 const user = { userId: "42", login: "researcher", displayName: "Researcher" };
+const consentState = "consent_state_1234567890_abcdefghijklmn";
+const githubState = "github_state_1234567890_abcdefghijklmn";
 
 class MemoryKv {
   readonly values = new Map<string, string>();
@@ -27,7 +29,7 @@ class MemoryKv {
     return this.values.get(key) ?? null;
   }
 
-  async put(key: string, value: string): Promise<void> {
+  async put(key: string, value: string, _options?: unknown): Promise<void> {
     this.values.set(key, value);
   }
 
@@ -61,7 +63,7 @@ async function authenticatedGet(path: string): Promise<Request> {
 
 function testEnv(storage: MemoryKv, oauth: Partial<OAuthHelpers> = {}): AuthEnv {
   return {
-    OAUTH_KV: {} as KVNamespace,
+    OAUTH_KV: storage as unknown as KVNamespace,
     USER_DATA_KV: storage as unknown as KVNamespace,
     GITHUB_CLIENT_ID: "github-client",
     GITHUB_CLIENT_SECRET: "github-secret",
@@ -78,7 +80,6 @@ function cookiePair(setCookie: string): string {
 describe("Cloudflare account controls", () => {
   it("reuses a valid browser session when approving a new MCP client", async () => {
     const storage = new MemoryKv();
-    const consentState = "consent-state";
     const oauthRequest: OAuthAuthorizationRequest = {
       responseType: "code",
       clientId: "claude-client",
@@ -87,7 +88,12 @@ describe("Cloudflare account controls", () => {
       state: "client-state"
     };
     const consent = cookiePair(
-      await createConsentCookie(consentState, oauthRequest, cookieSecret)
+      await storeConsentRequest(
+        storage as unknown as KVNamespace,
+        consentState,
+        oauthRequest,
+        cookieSecret
+      )
     );
     const session = cookiePair(await createSessionCookie(user, cookieSecret));
     let completed: CompleteAuthorizationOptions | null = null;
@@ -131,22 +137,108 @@ describe("Cloudflare account controls", () => {
       scope: ["mcp:research"]
     });
     expect(response.headers.get("Set-Cookie")).toContain(
-      "__Host-MEDICAL_RESEARCH_CONSENT="
+      `__Host-MEDICAL_RESEARCH_CONSENT_${consentState}=`
     );
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("completes overlapping MCP authorization requests without state collisions", async () => {
+    const storage = new MemoryKv();
+    const firstRequest: OAuthAuthorizationRequest = {
+      responseType: "code",
+      clientId: "chatgpt-client-first",
+      redirectUri: "https://chatgpt.com/connector_platform_oauth_redirect",
+      scope: ["mcp:research"],
+      state: "chatgpt-client-state-first",
+      codeChallenge: "first-code-challenge",
+      codeChallengeMethod: "S256",
+      resource: "https://example.workers.dev/mcp"
+    };
+    const secondRequest: OAuthAuthorizationRequest = {
+      ...firstRequest,
+      clientId: "chatgpt-client-second",
+      state: "chatgpt-client-state-second",
+      codeChallenge: "second-code-challenge"
+    };
+    const pending = [firstRequest, secondRequest];
+    const completed: CompleteAuthorizationOptions[] = [];
+    const env = testEnv(storage, {
+      async parseAuthRequest() {
+        return pending.shift()!;
+      },
+      async lookupClient(clientId) {
+        return {
+          clientId,
+          clientName: "ChatGPT",
+          redirectUris: [firstRequest.redirectUri],
+          tokenEndpointAuthMethod: "none"
+        };
+      },
+      async completeAuthorization(options) {
+        completed.push(options);
+        return {
+          redirectTo: `${options.request.redirectUri}?code=${options.request.clientId}`
+        };
+      }
+    });
+
+    const [firstPage, secondPage] = await Promise.all([
+      authHandler.fetch(
+        new Request("https://example.workers.dev/authorize?attempt=first") as AuthRequest,
+        env
+      ),
+      authHandler.fetch(
+        new Request("https://example.workers.dev/authorize?attempt=second") as AuthRequest,
+        env
+      )
+    ]);
+    const firstBody = await firstPage.text();
+    const secondBody = await secondPage.text();
+    const firstState = firstBody.match(/consent_state=([A-Za-z0-9_-]+)/u)?.[1];
+    const secondState = secondBody.match(/consent_state=([A-Za-z0-9_-]+)/u)?.[1];
+    expect(firstState).toBeTruthy();
+    expect(secondState).toBeTruthy();
+    expect(firstState).not.toBe(secondState);
+
+    const browserCookies = [
+      cookiePair(firstPage.headers.get("Set-Cookie")!),
+      cookiePair(secondPage.headers.get("Set-Cookie")!),
+      cookiePair(await createSessionCookie(user, cookieSecret))
+    ].join("; ");
+    const approve = (state: string) =>
+      new Request(`https://example.workers.dev/authorize?consent_state=${state}`, {
+        method: "POST",
+        headers: {
+          Cookie: browserCookies,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({ decision: "approve" })
+      });
+
+    const firstResult = await authHandler.fetch(approve(firstState!) as AuthRequest, env);
+    const secondResult = await authHandler.fetch(approve(secondState!) as AuthRequest, env);
+
+    expect(firstResult.status).toBe(302);
+    expect(secondResult.status).toBe(302);
+    expect(completed).toHaveLength(2);
+    expect(completed.map((item) => item.request.clientId).sort()).toEqual([
+      "chatgpt-client-first",
+      "chatgpt-client-second"
+    ]);
   });
 
   it("consumes GitHub callback state when the token exchange is rate limited", async () => {
     const storage = new MemoryKv();
     const oauthState = cookiePair(
-      await createOAuthStateCookie(
-        "github-state",
+      await storeOAuthFlow(
+        storage as unknown as KVNamespace,
+        githubState,
         { kind: "account", returnTo: "/account" },
         cookieSecret
       )
     );
     const request = new Request(
-      "https://example.workers.dev/callback?state=github-state&code=temporary-code",
+      `https://example.workers.dev/callback?state=${githubState}&code=temporary-code`,
       { headers: { Cookie: oauthState } }
     );
     const fetchMock = vi
@@ -157,7 +249,7 @@ describe("Cloudflare account controls", () => {
       const response = await authHandler.fetch(request as AuthRequest, testEnv(storage));
       expect(response.status).toBe(503);
       expect(response.headers.get("Set-Cookie")).toContain(
-        "__Host-MEDICAL_RESEARCH_OAUTH_STATE="
+        `__Host-MEDICAL_RESEARCH_OAUTH_STATE_${githubState}=`
       );
       expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
       expect(fetchMock).toHaveBeenCalledTimes(1);

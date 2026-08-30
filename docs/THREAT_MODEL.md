@@ -22,7 +22,7 @@ The OAuth provider validates bearer tokens, exact resource audiences, redirects,
 
 ### Confused-deputy authorization and CSRF
 
-The application shows the requesting client and requested capability before identity verification. Consent state and the GitHub return flow are short-lived, browser-bound, signed cookies. Callback state is consumed on both success and failure to prevent reload-based replay. A valid signed session can authorize another MCP client without another GitHub exchange, reducing upstream token-request exposure. Account mutations use a separate short-lived CSRF cookie and POST. Account deletion also requires the signed-in GitHub login to be typed exactly.
+The application shows the requesting client and requested capability before identity verification. Consent state and the GitHub return flow are short-lived records in `OAUTH_KV`, namespaced by independently generated state tokens, and bound to the initiating browser with state-specific signed cookies. This isolates concurrent authorization attempts. A validated record is deleted and its cookie is cleared on both success and failure to limit reload-based replay. A valid signed session can authorize another MCP client without another GitHub exchange, reducing upstream token-request exposure. Account mutations use a separate short-lived CSRF cookie and POST. Account deletion also requires the signed-in GitHub login to be typed exactly.
 
 ### Credential disclosure
 
@@ -55,7 +55,7 @@ Dependencies are pinned in the lockfile, generated bindings are checked, deploym
 ## Residual risks
 
 - The Workers rate limiter is permissive and eventually consistent across Cloudflare locations. It is an abuse control, not a billing ledger or a hard global quota.
-- KV is eventually consistent. A deleted encrypted provider setting can remain readable at another edge location for up to roughly 60 seconds, although OAuth grants are revoked and the browser session is cleared immediately.
+- KV is eventually consistent. A newly created authorization record may not be immediately visible if consecutive requests are routed to different Cloudflare locations, and a consumed record or deleted encrypted provider setting can remain visible elsewhere for up to roughly 60 seconds. State-specific signed browser bindings remain required even when a KV record is visible; OAuth grants are revoked and the browser session is cleared immediately during account deletion.
 - Analytics Engine retains pseudonymous events for three months and may sample high-volume series. Per-user erasure is not available because the dataset intentionally contains no reversible account identifier.
 - A compromised Cloudflare account or Worker encryption secret can expose stored personal provider keys. Key separation, account MFA, least-privilege operator access, and secret rotation procedures remain operator responsibilities.
 - Literature providers receive the queries or identifiers sent to them and can rate-limit, log, change, or fail independently.

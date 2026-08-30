@@ -98,6 +98,12 @@ $env:MCP_BASE_URL = "https://your-staging-worker.workers.dev"
 npm run smoke:cloudflare
 ```
 
+After an OAuth-state change, verify that overlapping browser flows remain isolated without completing a GitHub sign-in:
+
+```powershell
+npm run smoke:oauth-concurrency -- https://your-staging-worker.workers.dev
+```
+
 If an OAuth access token is available, set `MCP_OAUTH_ACCESS_TOKEN` to extend the smoke test through MCP initialization, tool discovery, and a live literature search. Do not commit or print that token.
 
 ## Custom domains
