@@ -22,6 +22,9 @@ export interface ArticleIdentifiers {
 export interface ResearchRecord {
   title: string;
   authors?: string[];
+  publicationTypes?: string[];
+  isPreprint?: boolean;
+  isRetracted?: boolean;
   abstract?: string;
   fullText?: string;
   journal?: string;
@@ -43,6 +46,10 @@ export interface SearchResult {
   identifiers: ArticleIdentifiers;
   providers: ProviderName[];
   authors?: string[];
+  publicationTypes?: string[];
+  isPreprint: boolean;
+  isRetracted: boolean;
+  statusWarnings?: string[];
   journal?: string;
   publicationDate?: string;
   isOpenAccess?: boolean;

@@ -1,5 +1,10 @@
 import { fetchJson, fetchText } from "../http.js";
 import { normalizeDoi } from "../identifiers.js";
+import {
+  hasPublicationType,
+  normalizePublicationTypes,
+  titleIndicatesRetraction
+} from "../publication-status.js";
 import { firstTag, tagBlock, tagBlocks, xmlToText } from "../xml.js";
 import type {
   CanonicalIdentifier,
@@ -25,6 +30,10 @@ interface EuropePmcResult {
   firstPublicationDate?: string;
   pubYear?: string | number;
   abstractText?: string;
+  pubTypeList?: { pubType?: string[] };
+  commentCorrectionList?: {
+    commentCorrection?: Array<{ type?: string }>;
+  };
   citedByCount?: number;
   isOpenAccess?: string | boolean;
   fullTextUrlList?: { fullTextUrl?: Array<{ url?: string; availability?: string; documentStyle?: string }> };
@@ -46,7 +55,7 @@ export class EuropePmcProvider implements ResearchProvider {
   constructor(private readonly context: ProviderContext) {}
 
   async search(query: string, limit: number, filters: SearchFilters = {}): Promise<ResearchRecord[]> {
-    const payload = await this.searchApi(europePmcSearchQuery(query, filters), limit, "lite");
+    const payload = await this.searchApi(europePmcSearchQuery(query, filters), limit, "core");
     return (payload.resultList?.result ?? []).map((result) => this.toRecord(result));
   }
 
@@ -158,10 +167,21 @@ export class EuropePmcProvider implements ResearchProvider {
       result.authorString?.split(/,\s*/).filter(Boolean);
     const pmid = result.pmid ?? (source === "MED" ? id : undefined);
     const pmcid = result.pmcid ?? (source === "PMC" && id ? id : undefined);
+    const publicationTypes = normalizePublicationTypes(result.pubTypeList?.pubType ?? []);
+    const isPreprint = source === "PPR" || hasPublicationType(publicationTypes, "Preprint");
+    const isRetracted =
+      hasPublicationType(publicationTypes, "Retracted Publication") ||
+      (result.commentCorrectionList?.commentCorrection ?? []).some(
+        (correction) => correction.type?.trim().toLowerCase() === "retraction in"
+      ) ||
+      titleIndicatesRetraction(result.title);
 
     return {
       title: xmlToText(result.title ?? "Untitled Europe PMC article"),
       ...(authors?.length ? { authors } : {}),
+      ...(publicationTypes.length ? { publicationTypes } : {}),
+      ...(isPreprint ? { isPreprint: true } : {}),
+      ...(isRetracted ? { isRetracted: true } : {}),
       ...(result.abstractText ? { abstract: xmlToText(result.abstractText) } : {}),
       ...(result.journalTitle || result.journalAbbreviation
         ? { journal: result.journalTitle ?? result.journalAbbreviation }

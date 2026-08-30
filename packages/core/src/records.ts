@@ -18,6 +18,12 @@ export function mergeRecords(records: ResearchRecord[]): ResearchRecord {
 
   const authors = unique(sorted.flatMap((record) => record.authors ?? []));
   if (authors.length) merged.authors = authors;
+  const publicationTypes = uniqueCaseInsensitive(
+    sorted.flatMap((record) => record.publicationTypes ?? [])
+  );
+  if (publicationTypes.length) merged.publicationTypes = publicationTypes;
+  if (sorted.some((record) => record.isPreprint === true)) merged.isPreprint = true;
+  if (sorted.some((record) => record.isRetracted === true)) merged.isRetracted = true;
   assignString(merged, "abstract", longest(sorted.map((record) => record.abstract)));
   assignString(merged, "fullText", longest(sorted.map((record) => record.fullText)));
   assignString(merged, "journal", firstUseful(sorted.map((record) => record.journal)));
@@ -98,6 +104,16 @@ function firstIdentifier(
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+function uniqueCaseInsensitive(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function assignString<K extends "abstract" | "fullText" | "journal" | "publicationDate" | "url" | "fullTextUrl" | "pdfUrl" | "license">(

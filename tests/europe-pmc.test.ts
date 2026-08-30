@@ -3,6 +3,52 @@ import { EuropePmcProvider } from "../packages/core/src/providers/europe-pmc.js"
 import type { FetchLike } from "../packages/core/src/types.js";
 
 describe("EuropePmcProvider", () => {
+  it("labels preprints and retracted publications from core metadata", async () => {
+    const fetcher = vi.fn<FetchLike>(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      expect(url.searchParams.get("resultType")).toBe("core");
+      return Response.json({
+        resultList: {
+          result: [
+            {
+              id: "PPR123456",
+              source: "PPR",
+              title: "An early clinical finding",
+              pubTypeList: { pubType: ["Preprint"] }
+            },
+            {
+              id: "32450107",
+              source: "MED",
+              pmid: "32450107",
+              title: "RETRACTED: A clinical registry analysis",
+              pubTypeList: {
+                pubType: ["Retracted Publication", "research-article", "Journal Article"]
+              },
+              commentCorrectionList: {
+                commentCorrection: [{ type: "Retraction in" }]
+              }
+            }
+          ]
+        }
+      });
+    });
+    const provider = new EuropePmcProvider({
+      fetch: fetcher,
+      contactEmail: "research-api@example.test"
+    });
+
+    const records = await provider.search("clinical", 2);
+
+    expect(records[0]).toMatchObject({
+      publicationTypes: ["Preprint"],
+      isPreprint: true
+    });
+    expect(records[1]).toMatchObject({
+      publicationTypes: ["Retracted Publication", "research-article", "Journal Article"],
+      isRetracted: true
+    });
+  });
+
   it("identifies full-text requests and preserves metadata when the XML endpoint is unavailable", async () => {
     const fetcher = vi.fn<FetchLike>(async (input) => {
       const url = new URL(input instanceof Request ? input.url : input.toString());

@@ -4,6 +4,7 @@ import { CrossrefProvider } from "./providers/crossref.js";
 import { EuropePmcProvider } from "./providers/europe-pmc.js";
 import { PubMedProvider } from "./providers/pubmed.js";
 import { UnpaywallProvider } from "./providers/unpaywall.js";
+import { researchStatusWarnings } from "./publication-status.js";
 import type {
   CitationDirection,
   CitationResponse,
@@ -140,6 +141,7 @@ export class ResearchService {
     );
     const resolvedId = canonicalId(merged);
     const url = canonicalUrl(merged);
+    const statusWarnings = researchStatusWarnings(merged);
 
     return {
       id: resolvedId,
@@ -149,6 +151,10 @@ export class ResearchService {
       metadata: {
         identifiers: merged.identifiers,
         ...(merged.authors ? { authors: merged.authors } : {}),
+        ...(merged.publicationTypes ? { publicationTypes: merged.publicationTypes } : {}),
+        isPreprint: merged.isPreprint === true,
+        isRetracted: merged.isRetracted === true,
+        ...(statusWarnings.length ? { statusWarnings } : {}),
         ...(merged.journal ? { journal: merged.journal } : {}),
         ...(merged.publicationDate ? { publicationDate: merged.publicationDate } : {}),
         ...(merged.license ? { license: merged.license } : {}),
@@ -258,6 +264,7 @@ function hasRepositoryFullText(record: ResearchRecord): boolean {
 }
 
 function toSearchResult(record: ResearchRecord) {
+  const statusWarnings = researchStatusWarnings(record);
   return {
     id: canonicalId(record),
     title: record.title,
@@ -265,6 +272,10 @@ function toSearchResult(record: ResearchRecord) {
     identifiers: record.identifiers,
     providers: record.providers,
     ...(record.authors?.length ? { authors: record.authors.slice(0, 12) } : {}),
+    ...(record.publicationTypes?.length ? { publicationTypes: record.publicationTypes } : {}),
+    isPreprint: record.isPreprint === true,
+    isRetracted: record.isRetracted === true,
+    ...(statusWarnings.length ? { statusWarnings } : {}),
     ...(record.journal ? { journal: record.journal } : {}),
     ...(record.publicationDate ? { publicationDate: record.publicationDate } : {}),
     ...(record.isOpenAccess !== undefined ? { isOpenAccess: record.isOpenAccess } : {}),
@@ -369,6 +380,7 @@ function normalizeSearchTerm(term: string): string {
 function metadataSummary(record: ResearchRecord): string {
   return [
     record.title,
+    ...researchStatusWarnings(record),
     record.authors?.length ? `Authors: ${record.authors.join(", ")}` : undefined,
     record.journal ? `Journal: ${record.journal}` : undefined,
     record.publicationDate ? `Published: ${record.publicationDate}` : undefined,

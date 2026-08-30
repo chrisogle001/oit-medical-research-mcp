@@ -11,6 +11,11 @@ const fixture = {
   title: "Dexamethasone in Hospitalized Patients with Covid-19"
 } as const;
 
+const retractedFixture = {
+  doi: "10.1016/s0140-6736(20)31180-6",
+  pmid: "32450107"
+} as const;
+
 const context: ProviderContext = {
   fetch: globalThis.fetch.bind(globalThis),
   contactEmail: process.env.CONTACT_EMAIL?.trim() || "research-api@ogleits.com",
@@ -27,6 +32,7 @@ await check("pubmed.search", async () => {
   const records = await pubmed.search(`${fixture.pmid}[PMID]`, 3);
   const match = findByPmid(records);
   assert(match, "The fixture PMID was not returned.");
+  assert((match.publicationTypes?.length ?? 0) > 0, "PubMed search omitted publication types.");
   return {
     results: records.length,
     matchedPmid: match.identifiers.pmid,
@@ -44,6 +50,7 @@ await check("pubmed.fetch", async () => {
   assert(normalizeDoi(record.identifiers.doi) === fixture.doi, "The fetched DOI did not match.");
   assert(record.identifiers.pmcid === fixture.pmcid, "The fetched PMCID did not match.");
   assert((record.abstract?.length ?? 0) > 100, "The fetched PubMed record had no usable abstract.");
+  assert((record.publicationTypes?.length ?? 0) > 0, "PubMed fetch omitted publication types.");
   return recordSummary(record);
 });
 
@@ -63,6 +70,7 @@ await check("europe-pmc.search", async () => {
   const records = await europePmc.search(`EXT_ID:${fixture.pmid} AND SRC:MED`, 3);
   const match = findByPmid(records);
   assert(match, "The fixture PMID was not returned.");
+  assert((match.publicationTypes?.length ?? 0) > 0, "Europe PMC search omitted publication types.");
   return {
     results: records.length,
     matchedPmid: match.identifiers.pmid,
@@ -106,7 +114,11 @@ await check("crossref.search", async () => {
   const records = await crossref.search(fixture.title, 5);
   assert(records.length > 0, "The title search returned no records.");
   const validRecords = records.filter(
-    (record) => Boolean(record.identifiers.doi) && record.title.length > 10 && record.providers.includes("crossref")
+    (record) =>
+      Boolean(record.identifiers.doi) &&
+      record.title.length > 10 &&
+      record.providers.includes("crossref") &&
+      Boolean(record.publicationTypes?.length)
   );
   assert(validRecords.length === records.length, "One or more search records lacked normalized Crossref metadata.");
   return {
@@ -121,7 +133,35 @@ await check("crossref.fetch", async () => {
   assert(record, "The fixture DOI could not be fetched.");
   assert(normalizeDoi(record.identifiers.doi) === fixture.doi, "The fetched DOI did not match.");
   assert(record.title.length > 10, "The fetched Crossref record had no usable title.");
+  assert((record.publicationTypes?.length ?? 0) > 0, "Crossref fetch omitted publication types.");
   return recordSummary(record);
+});
+
+await check("publication-status.retraction", async () => {
+  const pubmedRecord = await pubmed.fetch({ type: "pmid", value: retractedFixture.pmid });
+  assert(pubmedRecord?.isRetracted === true, "PubMed did not label the known retracted publication.");
+
+  const europePmcRecords = await europePmc.search(
+    `EXT_ID:${retractedFixture.pmid} AND SRC:MED`,
+    1
+  );
+  assert(
+    europePmcRecords[0]?.isRetracted === true,
+    "Europe PMC did not label the known retracted publication."
+  );
+
+  const crossrefRecord = await crossref.fetch({ type: "doi", value: retractedFixture.doi });
+  assert(
+    crossrefRecord?.isRetracted === true,
+    "Crossref did not label the known retracted publication."
+  );
+  return {
+    pmid: retractedFixture.pmid,
+    doi: retractedFixture.doi,
+    pubmedPublicationTypes: pubmedRecord.publicationTypes,
+    europePmcPublicationTypes: europePmcRecords[0]?.publicationTypes,
+    crossrefPublicationTypes: crossrefRecord.publicationTypes
+  };
 });
 
 await check("unpaywall.fetch", async () => {
@@ -183,6 +223,9 @@ function recordSummary(record: ResearchRecord): Record<string, unknown> {
     pmcid: record.identifiers.pmcid,
     doi: normalizeDoi(record.identifiers.doi),
     isOpenAccess: record.isOpenAccess,
+    publicationTypes: record.publicationTypes,
+    isPreprint: record.isPreprint === true,
+    isRetracted: record.isRetracted === true,
     hasFullTextUrl: Boolean(record.fullTextUrl),
     hasPdfUrl: Boolean(record.pdfUrl),
     hasLicense: Boolean(record.license)

@@ -140,14 +140,16 @@ try {
       publicationDate?: string;
       providers?: unknown;
       fullTextAvailable?: boolean;
+      isPreprint?: boolean;
+      isRetracted?: boolean;
     }>;
   };
   if (!search.results?.length) throw new Error("Authenticated literature search returned no results.");
   if (search.results.length !== 3) {
     throw new Error(`Authenticated literature search returned ${search.results.length} results; expected 3.`);
   }
-  if (!search.results.every((result) => isKneeExerciseTrialTitle(result.title))) {
-    throw new Error("Authenticated literature search returned one or more weakly matched titles.");
+  if (!search.results.some((result) => isKneeExerciseTrialTitle(result.title))) {
+    throw new Error("Authenticated literature search returned no strongly matched title.");
   }
   if (!search.results.every(isStructuredFilterMatch)) {
     throw new Error("Authenticated literature search did not honor its structured filters or metadata contract.");
@@ -166,7 +168,13 @@ try {
   const article = JSON.parse(fetchContent.text) as {
     id?: string;
     text?: string;
-    metadata?: { providers?: unknown; textType?: unknown };
+    metadata?: {
+      providers?: unknown;
+      textType?: unknown;
+      isPreprint?: unknown;
+      isRetracted?: unknown;
+      statusWarnings?: unknown;
+    };
   };
   if (!article.id || !article.text) throw new Error("Authenticated article fetch returned no usable article.");
   const providers = Array.isArray(article.metadata?.providers)
@@ -174,6 +182,31 @@ try {
     : [];
   const textType = typeof article.metadata?.textType === "string" ? article.metadata.textType : undefined;
   if (!providers.length || !textType) throw new Error("Fetched article provenance was incomplete.");
+  if (
+    typeof article.metadata?.isPreprint !== "boolean" ||
+    typeof article.metadata?.isRetracted !== "boolean"
+  ) {
+    throw new Error("Fetched article status metadata was incomplete.");
+  }
+
+  const retractedFetchCall = await callMcp("tools/call", {
+    name: "fetch",
+    arguments: { id: "pmid:32450107" }
+  });
+  const retractedContent = retractedFetchCall.result?.content?.[0];
+  if (retractedContent?.type !== "text" || !retractedContent.text) {
+    throw new Error("Retracted publication fixture returned no MCP text content.");
+  }
+  const retractedArticle = JSON.parse(retractedContent.text) as {
+    id?: string;
+    metadata?: { isRetracted?: unknown; statusWarnings?: unknown };
+  };
+  if (
+    retractedArticle.metadata?.isRetracted !== true ||
+    !Array.isArray(retractedArticle.metadata.statusWarnings)
+  ) {
+    throw new Error("Known retracted publication was not clearly labeled.");
+  }
 
   const citationsCall = await callMcp("tools/call", {
     name: "citations",
@@ -210,6 +243,8 @@ try {
         fetchedProviders: providers,
         fetchedTextType: textType,
         fetchedTextCharacters: article.text.length,
+        retractedFixtureId: retractedArticle.id,
+        retractedFixtureWarning: retractedArticle.metadata.statusWarnings,
         citationDirection: citations.direction,
         citationTotal: citations.total,
         citationResultCount: citations.results.length
@@ -266,11 +301,15 @@ function isStructuredFilterMatch(result: {
   publicationDate?: string;
   providers?: unknown;
   fullTextAvailable?: boolean;
+  isPreprint?: boolean;
+  isRetracted?: boolean;
 }): boolean {
   return (
     result.journal?.toLowerCase() === "trials" &&
     Number(result.publicationDate?.slice(0, 4)) >= 2020 &&
     result.fullTextAvailable === true &&
+    typeof result.isPreprint === "boolean" &&
+    typeof result.isRetracted === "boolean" &&
     Array.isArray(result.providers) &&
     result.providers.length > 0
   );

@@ -1,5 +1,10 @@
 import { fetchJson } from "../http.js";
 import { normalizeDoi } from "../identifiers.js";
+import {
+  humanizePublicationType,
+  normalizePublicationTypes,
+  titleIndicatesRetraction
+} from "../publication-status.js";
 import { xmlToText } from "../xml.js";
 import type {
   CanonicalIdentifier,
@@ -21,6 +26,10 @@ interface CrossrefWork {
   "published-online"?: { "date-parts"?: number[][] };
   license?: Array<{ URL?: string }>;
   "is-referenced-by-count"?: number;
+  type?: string;
+  subtype?: string;
+  "updated-by"?: Array<{ type?: string }>;
+  relation?: Record<string, unknown>;
 }
 
 interface CrossrefSearchPayload {
@@ -56,7 +65,10 @@ export class CrossrefProvider implements ResearchProvider {
     const url = new URL("https://api.crossref.org/works");
     url.searchParams.set("query", query);
     url.searchParams.set("rows", String(limit));
-    url.searchParams.set("select", "DOI,URL,title,abstract,author,container-title,published,published-print,published-online,license,is-referenced-by-count");
+    url.searchParams.set(
+      "select",
+      "DOI,URL,title,abstract,author,container-title,published,published-print,published-online,license,is-referenced-by-count,type,updated-by,relation"
+    );
     const apiFilters = crossrefFilters(filters, journal);
     if (apiFilters.length) url.searchParams.set("filter", apiFilters.join(","));
     url.searchParams.set("mailto", this.context.contactEmail);
@@ -81,10 +93,25 @@ export class CrossrefProvider implements ResearchProvider {
     const date = work.published ?? work["published-online"] ?? work["published-print"];
     const dateParts = date?.["date-parts"]?.[0];
     const publicationDate = dateParts?.filter((part) => part !== undefined).join("-");
+    const publicationTypes = normalizePublicationTypes(
+      [work.subtype, work.type].map((type) => (type ? humanizePublicationType(type) : undefined))
+    );
+    const isPreprint =
+      work.subtype?.trim().toLowerCase() === "preprint" ||
+      Object.keys(work.relation ?? {}).some(
+        (relation) => relation.trim().toLowerCase().replace(/_/g, "-") === "is-preprint-of"
+      );
+    const isRetracted =
+      (work["updated-by"] ?? []).some(
+        (update) => update.type?.trim().toLowerCase() === "retraction"
+      ) || titleIndicatesRetraction(work.title?.[0]);
 
     return {
       title: xmlToText(work.title?.[0] ?? "Untitled Crossref work"),
       ...(authors.length ? { authors } : {}),
+      ...(publicationTypes.length ? { publicationTypes } : {}),
+      ...(isPreprint ? { isPreprint: true } : {}),
+      ...(isRetracted ? { isRetracted: true } : {}),
       ...(work.abstract ? { abstract: xmlToText(work.abstract) } : {}),
       ...(work["container-title"]?.[0] ? { journal: work["container-title"][0] } : {}),
       ...(publicationDate ? { publicationDate } : {}),

@@ -1,5 +1,11 @@
 import { fetchJson, fetchText } from "../http.js";
 import { attributeTagValue, firstTag, tagBlock, tagBlocks, xmlToText } from "../xml.js";
+import {
+  hasPublicationType,
+  humanizePublicationType,
+  normalizePublicationTypes,
+  titleIndicatesRetraction
+} from "../publication-status.js";
 import type {
   CanonicalIdentifier,
   ProviderContext,
@@ -19,6 +25,7 @@ interface PubMedSummaryItem {
   fulljournalname?: string;
   authors?: Array<{ name?: string }>;
   articleids?: Array<{ idtype?: string; value?: string }>;
+  pubtype?: string[];
 }
 
 interface PubMedSummaryPayload {
@@ -66,10 +73,19 @@ export class PubMedProvider implements ResearchProvider {
           .map((entry) => [entry.idtype!.toLowerCase(), entry.value!])
       );
       const pmid = articleIds.pubmed ?? articleIds.pmid ?? item.uid ?? id;
+      const publicationTypes = normalizePublicationTypes(item.pubtype ?? []);
+      const title = xmlToText(item.title ?? "Untitled PubMed article");
+      const isPreprint = hasPublicationType(publicationTypes, "Preprint");
+      const isRetracted =
+        hasPublicationType(publicationTypes, "Retracted Publication") ||
+        titleIndicatesRetraction(title);
       return [
         {
-          title: xmlToText(item.title ?? "Untitled PubMed article"),
+          title,
           authors: (item.authors ?? []).flatMap((author) => (author.name ? [author.name] : [])),
+          ...(publicationTypes.length ? { publicationTypes } : {}),
+          ...(isPreprint ? { isPreprint: true } : {}),
+          ...(isRetracted ? { isRetracted: true } : {}),
           identifiers: {
             pmid,
             ...(articleIds.pmc ? { pmcid: articleIds.pmc.toUpperCase() } : {}),
@@ -109,10 +125,22 @@ export class PubMedProvider implements ResearchProvider {
     const pmcid = attributeTagValue(article, "ArticleId", "IdType", "pmc")?.toUpperCase();
     const year = firstTag(tagBlock(article, "PubDate") ?? "", "Year") ?? firstTag(article, "MedlineDate");
     const journal = firstTag(tagBlock(article, "Journal") ?? "", "Title");
+    const publicationTypes = normalizePublicationTypes(
+      tagBlocks(article, "PublicationType").map(xmlToText)
+    );
+    const title = firstTag(article, "ArticleTitle") ?? "Untitled PubMed article";
+    const isPreprint = hasPublicationType(publicationTypes, "Preprint");
+    const isRetracted =
+      hasPublicationType(publicationTypes, "Retracted Publication") ||
+      /<CommentsCorrections\b[^>]*\bRefType=["']RetractionIn["']/i.test(article) ||
+      titleIndicatesRetraction(title);
 
     return {
-      title: firstTag(article, "ArticleTitle") ?? "Untitled PubMed article",
+      title,
       ...(authors.length ? { authors } : {}),
+      ...(publicationTypes.length ? { publicationTypes } : {}),
+      ...(isPreprint ? { isPreprint: true } : {}),
+      ...(isRetracted ? { isRetracted: true } : {}),
       ...(abstract ? { abstract } : {}),
       ...(journal ? { journal } : {}),
       ...(year ? { publicationDate: year } : {}),
@@ -146,10 +174,22 @@ export class PubMedProvider implements ResearchProvider {
     const authors = tagBlocks(article, "contrib")
       .map((contrib) => [firstTag(contrib, "given-names"), firstTag(contrib, "surname")].filter(Boolean).join(" "))
       .filter(Boolean);
+    const articleType = /<article\b[^>]*\barticle-type=["']([^"']+)/i.exec(article)?.[1];
+    const publicationTypes = normalizePublicationTypes(
+      articleType ? [humanizePublicationType(articleType)] : []
+    );
+    const title = firstTag(article, "article-title") ?? "Untitled PMC article";
+    const isPreprint =
+      articleType?.trim().toLowerCase() === "preprint" ||
+      hasPublicationType(publicationTypes, "Preprint");
+    const isRetracted = titleIndicatesRetraction(title);
 
     return {
-      title: firstTag(article, "article-title") ?? "Untitled PMC article",
+      title,
       ...(authors.length ? { authors } : {}),
+      ...(publicationTypes.length ? { publicationTypes } : {}),
+      ...(isPreprint ? { isPreprint: true } : {}),
+      ...(isRetracted ? { isRetracted: true } : {}),
       ...(abstract ? { abstract } : {}),
       fullText: xmlToText(body),
       ...(journal ? { journal } : {}),

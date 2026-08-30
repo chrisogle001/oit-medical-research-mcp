@@ -59,6 +59,8 @@ describe("ResearchService", () => {
           url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC456/",
           identifiers: { pmid: "123", pmcid: "PMC456", doi: "10.1000/trial" },
           providers: ["europe-pmc", "pubmed"],
+          isPreprint: false,
+          isRetracted: false,
           fullTextAvailable: true
         }
       ]
@@ -258,10 +260,56 @@ describe("ResearchService", () => {
     expect(result.id).toBe("pmcid:PMC456");
     expect(result.text).toBe("Lawfully available full text.");
     expect(result.metadata).toMatchObject({
+      isPreprint: false,
+      isRetracted: false,
       isOpenAccess: true,
       license: "CC BY",
       textType: "lawful-full-text",
       providers: ["europe-pmc", "pubmed"]
+    });
+  });
+
+  it("returns explicit preprint and retraction warnings", async () => {
+    const provider: ResearchProvider = {
+      name: "pubmed",
+      async search() {
+        return [
+          {
+            title: "A preliminary treatment study",
+            publicationTypes: ["Preprint"],
+            isPreprint: true,
+            identifiers: { pmid: "777" },
+            providers: ["pubmed"]
+          }
+        ];
+      },
+      async fetch() {
+        return {
+          title: "RETRACTED: A preliminary treatment study",
+          publicationTypes: ["Journal Article", "Retracted Publication"],
+          isRetracted: true,
+          abstract: "Withdrawn findings.",
+          identifiers: { pmid: "777" },
+          providers: ["pubmed"]
+        };
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const search = await service.search("preliminary treatment");
+    expect(search.results[0]).toMatchObject({
+      publicationTypes: ["Preprint"],
+      isPreprint: true,
+      isRetracted: false,
+      statusWarnings: ["Preprint: this work may not have completed peer review."]
+    });
+
+    const article = await service.fetch("pmid:777");
+    expect(article.metadata).toMatchObject({
+      publicationTypes: ["Journal Article", "Retracted Publication"],
+      isPreprint: false,
+      isRetracted: true,
+      statusWarnings: ["Retracted publication: do not treat this record as active evidence."]
     });
   });
 
