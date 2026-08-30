@@ -1,7 +1,8 @@
 # Copy this file to .dev.vars for local Worker development.
 # Never commit real secrets.
-GITHUB_CLIENT_ID=replace-with-your-github-oauth-client-id
-GITHUB_CLIENT_SECRET=replace-with-your-github-oauth-client-secret
+# Optional: only needed for GitHub-backed browser account management.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
 COOKIE_ENCRYPTION_KEY=replace-with-at-least-32-random-characters
 USER_DATA_ENCRYPTION_KEY=replace-with-a-different-32-character-random-secret
 NCBI_API_KEY=

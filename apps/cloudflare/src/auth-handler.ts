@@ -19,6 +19,7 @@ import {
   consumeConsentRequest,
   consumeOAuthFlow,
   createCsrfCookie,
+  createPseudonymousUser,
   createSessionCookie,
   randomToken,
   readSession,
@@ -194,13 +195,17 @@ async function continueClientAuthorization(request: Request, env: OAuthEnv): Pro
   const session = await readSession(request, env.COOKIE_ENCRYPTION_KEY);
   const response = session
     ? await completeMcpAuthorization(env, oauthRequest, session)
-    : await startGitHubFlow(request, env, { kind: "mcp", request: oauthRequest });
+    : await completePseudonymousMcpAuthorization(env, oauthRequest);
   return appendCookie(response, clearConsentCookie(consentState));
 }
 
 async function beginAccountLogin(request: Request, env: OAuthEnv): Promise<Response> {
   const configurationError = validateConfiguration(env);
   if (configurationError) return configurationError;
+  const session = await readSession(request, env.COOKIE_ENCRYPTION_KEY);
+  if (session) return redirectResponse(new URL("/account", request.url).toString());
+  const githubConfigurationError = validateGitHubConfiguration(env);
+  if (githubConfigurationError) return githubConfigurationError;
   return startGitHubFlow(request, env, { kind: "account", returnTo: "/account" });
 }
 
@@ -272,6 +277,15 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
   }
   const flow = flowResult.value;
 
+  const githubConfigurationError = validateGitHubConfiguration(env);
+  if (githubConfigurationError) {
+    const response =
+      flow.kind === "mcp"
+        ? await completePseudonymousMcpAuthorization(env, flow.request)
+        : githubConfigurationError;
+    return appendCookie(response, clearOAuthStateCookie(state));
+  }
+
   const upstreamError = url.searchParams.get("error");
   if (upstreamError) {
     const response =
@@ -301,6 +315,18 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
         ...(tokenResult.status ? { status: tokenResult.status } : {})
       })
     );
+    if (flow.kind === "mcp") {
+      console.warn(
+        JSON.stringify({
+          event: "github_oauth_fell_back_to_pseudonymous_identity",
+          reason: tokenResult.reason
+        })
+      );
+      return appendCookie(
+        await completePseudonymousMcpAuthorization(env, flow.request),
+        clearOAuthStateCookie(state)
+      );
+    }
     return appendCookie(
       renderError(
         "GitHub sign-in failed",
@@ -312,6 +338,13 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
   }
   const user = await fetchGitHubUser(tokenResult.accessToken);
   if (!user) {
+    if (flow.kind === "mcp") {
+      console.warn(JSON.stringify({ event: "github_profile_fell_back_to_pseudonymous_identity" }));
+      return appendCookie(
+        await completePseudonymousMcpAuthorization(env, flow.request),
+        clearOAuthStateCookie(state)
+      );
+    }
     return appendCookie(
       renderError(
         "GitHub profile unavailable",
@@ -336,6 +369,15 @@ async function handleGitHubCallback(request: Request, env: OAuthEnv): Promise<Re
     await completeMcpAuthorization(env, flow.request, user, sessionCookie),
     clearOAuthStateCookie(state)
   );
+}
+
+async function completePseudonymousMcpAuthorization(
+  env: OAuthEnv,
+  oauthRequest: AuthRequest
+): Promise<Response> {
+  const user = createPseudonymousUser();
+  const sessionCookie = await createSessionCookie(user, env.COOKIE_ENCRYPTION_KEY);
+  return completeMcpAuthorization(env, oauthRequest, user, sessionCookie);
 }
 
 async function completeMcpAuthorization(
@@ -668,7 +710,8 @@ async function fetchGitHubUser(accessToken: string): Promise<AuthenticatedUser |
     userId: String(payload.id),
     login: payload.login,
     displayName,
-    ...(avatarUrl ? { avatarUrl } : {})
+    ...(avatarUrl ? { avatarUrl } : {}),
+    identityProvider: "github"
   };
 }
 
@@ -733,9 +776,7 @@ function logAuthorizationStateFailure(event: string, reason: string): void {
 function validateConfiguration(env: OAuthEnv): Response | null {
   if (
     !env.OAUTH_KV ||
-    !env.USER_DATA_KV ||
-    !env.GITHUB_CLIENT_ID ||
-    !env.GITHUB_CLIENT_SECRET
+    !env.USER_DATA_KV
   ) {
     return renderError("Sign-in not configured", "The server owner has not finished OAuth setup.", 503);
   }
@@ -746,6 +787,17 @@ function validateConfiguration(env: OAuthEnv): Response | null {
     return renderError(
       "Sign-in not configured",
       "The encrypted user-settings secret is missing or too short.",
+      503
+    );
+  }
+  return null;
+}
+
+function validateGitHubConfiguration(env: OAuthEnv): Response | null {
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+    return renderError(
+      "GitHub sign-in not configured",
+      "GitHub account management is optional and has not been configured for this server.",
       503
     );
   }

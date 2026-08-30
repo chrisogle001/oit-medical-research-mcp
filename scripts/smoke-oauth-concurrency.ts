@@ -16,6 +16,7 @@ const registration = await postJson<{ client_id: string }>(metadata.registration
 });
 
 const attempts = [createAuthorizationUrl("first"), createAuthorizationUrl("second")];
+const expectedClientStates = attempts.map((attempt) => new URL(attempt).searchParams.get("state"));
 const pages = await Promise.all(attempts.map((url) => fetch(url, { redirect: "manual" })));
 const pageBodies = await Promise.all(pages.map((response) => response.text()));
 const consentStates = pageBodies.map((body, index) => {
@@ -52,20 +53,31 @@ const approvals = await Promise.all(
     })
   )
 );
-const approvalBodies = await Promise.all(approvals.map((response) => response.text()));
-const githubBindingNames = approvals.map((response, index) => {
-  if (response.status !== 200 || !approvalBodies[index]!.includes("Sign in with GitHub")) {
-    throw new Error(`Concurrent approval ${index + 1} did not reach the GitHub handoff.`);
+const authorizationCodes = approvals.map((response, index) => {
+  if (response.status !== 302) {
+    throw new Error(`Concurrent approval ${index + 1} returned HTTP ${response.status}.`);
   }
-  const cookie = response.headers
+  const location = response.headers.get("Location");
+  if (!location) throw new Error(`Concurrent approval ${index + 1} did not redirect to its client.`);
+  const redirect = new URL(location);
+  if (`${redirect.origin}${redirect.pathname}` !== "https://client.example/callback") {
+    throw new Error(`Concurrent approval ${index + 1} redirected to an unexpected client.`);
+  }
+  if (redirect.searchParams.get("state") !== expectedClientStates[index]) {
+    throw new Error(`Concurrent approval ${index + 1} returned the wrong client state.`);
+  }
+  const code = redirect.searchParams.get("code");
+  if (!code) throw new Error(`Concurrent approval ${index + 1} did not issue a code.`);
+  const sessionCookie = response.headers
     .getSetCookie()
-    .find((value) => value.startsWith("__Host-MEDICAL_RESEARCH_OAUTH_STATE_"));
-  const name = cookie?.split("=", 1)[0];
-  if (!name) throw new Error(`Concurrent approval ${index + 1} did not set GitHub handoff state.`);
-  return name;
+    .find((value) => value.startsWith("__Host-MEDICAL_RESEARCH_SESSION="));
+  if (!sessionCookie) {
+    throw new Error(`Concurrent approval ${index + 1} did not create a pseudonymous session.`);
+  }
+  return code;
 });
-if (githubBindingNames[0] === githubBindingNames[1]) {
-  throw new Error("Concurrent approvals reused the same GitHub handoff state.");
+if (authorizationCodes[0] === authorizationCodes[1]) {
+  throw new Error("Concurrent approvals reused the same authorization code.");
 }
 
 console.log(
@@ -74,7 +86,7 @@ console.log(
       endpoint: baseUrl,
       concurrentAuthorizationPages: "isolated",
       concurrentConsentApprovals: "accepted",
-      concurrentGitHubHandoffs: "isolated"
+      concurrentPseudonymousAuthorizations: "isolated"
     },
     null,
     2

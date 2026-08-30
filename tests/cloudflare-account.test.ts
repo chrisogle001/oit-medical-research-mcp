@@ -61,12 +61,20 @@ async function authenticatedGet(path: string): Promise<Request> {
   return new Request(`https://example.workers.dev${path}`, { headers: { Cookie: session } });
 }
 
-function testEnv(storage: MemoryKv, oauth: Partial<OAuthHelpers> = {}): AuthEnv {
+function testEnv(
+  storage: MemoryKv,
+  oauth: Partial<OAuthHelpers> = {},
+  githubConfigured = true
+): AuthEnv {
   return {
     OAUTH_KV: storage as unknown as KVNamespace,
     USER_DATA_KV: storage as unknown as KVNamespace,
-    GITHUB_CLIENT_ID: "github-client",
-    GITHUB_CLIENT_SECRET: "github-secret",
+    ...(githubConfigured
+      ? {
+          GITHUB_CLIENT_ID: "github-client",
+          GITHUB_CLIENT_SECRET: "github-secret"
+        }
+      : {}),
     COOKIE_ENCRYPTION_KEY: cookieSecret,
     USER_DATA_ENCRYPTION_KEY: userDataSecret,
     OAUTH_PROVIDER: oauth as OAuthHelpers
@@ -78,6 +86,75 @@ function cookiePair(setCookie: string): string {
 }
 
 describe("Cloudflare account controls", () => {
+  it("authorizes a new MCP client with a pseudonymous account and no GitHub request", async () => {
+    const storage = new MemoryKv();
+    const oauthRequest: OAuthAuthorizationRequest = {
+      responseType: "code",
+      clientId: "claude-client",
+      redirectUri: "https://claude.example/callback",
+      scope: ["mcp:research"],
+      state: "client-state"
+    };
+    const consent = cookiePair(
+      await storeConsentRequest(
+        storage as unknown as KVNamespace,
+        consentState,
+        oauthRequest,
+        cookieSecret
+      )
+    );
+    let completed: CompleteAuthorizationOptions | null = null;
+    const request = new Request(
+      `https://example.workers.dev/authorize?consent_state=${consentState}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: consent,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({ decision: "approve" })
+      }
+    );
+
+    const response = await authHandler.fetch(
+      request as AuthRequest,
+      testEnv(storage, {
+        async lookupClient(clientId) {
+          return {
+            clientId,
+            clientName: "Claude",
+            redirectUris: [oauthRequest.redirectUri],
+            tokenEndpointAuthMethod: "none"
+          };
+        },
+        async completeAuthorization(options) {
+          completed = options;
+          return { redirectTo: "https://claude.example/callback?code=issued" };
+        }
+      }, false)
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "https://claude.example/callback?code=issued"
+    );
+    expect(completed).toMatchObject({
+      request: oauthRequest,
+      userId: expect.stringMatching(/^pseudonymous:/u),
+      scope: ["mcp:research"],
+      props: {
+        identityProvider: "pseudonymous",
+        displayName: "Private researcher"
+      }
+    });
+    expect(response.headers.get("Set-Cookie")).toContain(
+      "__Host-MEDICAL_RESEARCH_SESSION="
+    );
+    expect(response.headers.get("Set-Cookie")).toContain(
+      `__Host-MEDICAL_RESEARCH_CONSENT_${consentState}=`
+    );
+  });
+
   it("reuses a valid browser session when approving a new MCP client", async () => {
     const storage = new MemoryKv();
     const oauthRequest: OAuthAuthorizationRequest = {
@@ -140,6 +217,30 @@ describe("Cloudflare account controls", () => {
       `__Host-MEDICAL_RESEARCH_CONSENT_${consentState}=`
     );
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("opens account management directly for an existing pseudonymous session", async () => {
+    const storage = new MemoryKv();
+    const session = cookiePair(
+      await createSessionCookie(
+        {
+          userId: "pseudonymous:test-user",
+          login: "private-test-user",
+          displayName: "Private researcher",
+          identityProvider: "pseudonymous"
+        },
+        cookieSecret
+      )
+    );
+    const response = await authHandler.fetch(
+      new Request("https://example.workers.dev/login", {
+        headers: { Cookie: session }
+      }) as AuthRequest,
+      testEnv(storage, {}, false)
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("https://example.workers.dev/account");
   });
 
   it("completes overlapping MCP authorization requests without state collisions", async () => {
@@ -252,6 +353,70 @@ describe("Cloudflare account controls", () => {
         `__Host-MEDICAL_RESEARCH_OAUTH_STATE_${githubState}=`
       );
       expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("recovers a pending MCP authorization when GitHub rate limits the exchange", async () => {
+    const storage = new MemoryKv();
+    const oauthRequest: OAuthAuthorizationRequest = {
+      responseType: "code",
+      clientId: "claude-client",
+      redirectUri: "https://claude.example/callback",
+      scope: ["mcp:research"],
+      state: "client-state"
+    };
+    const oauthState = cookiePair(
+      await storeOAuthFlow(
+        storage as unknown as KVNamespace,
+        githubState,
+        { kind: "mcp", request: oauthRequest },
+        cookieSecret
+      )
+    );
+    let completed: CompleteAuthorizationOptions | null = null;
+    const request = new Request(
+      `https://example.workers.dev/callback?state=${githubState}&code=temporary-code`,
+      { headers: { Cookie: oauthState } }
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ message: "rate limited" }, { status: 429 }));
+
+    try {
+      const response = await authHandler.fetch(
+        request as AuthRequest,
+        testEnv(storage, {
+          async lookupClient(clientId) {
+            return {
+              clientId,
+              clientName: "Claude",
+              redirectUris: [oauthRequest.redirectUri],
+              tokenEndpointAuthMethod: "none"
+            };
+          },
+          async completeAuthorization(options) {
+            completed = options;
+            return { redirectTo: "https://claude.example/callback?code=recovered" };
+          }
+        })
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe(
+        "https://claude.example/callback?code=recovered"
+      );
+      expect(completed).toMatchObject({
+        userId: expect.stringMatching(/^pseudonymous:/u),
+        props: { identityProvider: "pseudonymous" }
+      });
+      expect(response.headers.get("Set-Cookie")).toContain(
+        "__Host-MEDICAL_RESEARCH_SESSION="
+      );
+      expect(response.headers.get("Set-Cookie")).toContain(
+        `__Host-MEDICAL_RESEARCH_OAUTH_STATE_${githubState}=`
+      );
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       fetchMock.mockRestore();

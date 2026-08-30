@@ -35,7 +35,7 @@ export function renderHome(origin: string, notice?: string): Response {
           <h1>Medical literature, connected to your AI workspace.</h1>
           <p class="lead">Search PubMed, PubMed Central, Europe PMC, Crossref, and lawful open-access sources through one read-only MCP server.</p>
           <div class="actions">
-            <a class="button primary" href="/login">Sign in with GitHub</a>
+            <a class="button primary" href="/login">Manage hosted account</a>
             <a class="button secondary" href="${escapeHtml(`${origin}/mcp`)}">MCP endpoint</a>
           </div>
         </section>
@@ -69,7 +69,7 @@ export function renderConsent(options: ConsentPageOptions): Response {
           </div>
           <div class="permission muted">
             <strong>It will not be able to:</strong>
-            <ul><li>Change records at the literature providers</li><li>See your identity provider password or retain its temporary access token</li><li>Bypass publisher access controls</li></ul>
+            <ul><li>Change records at the literature providers</li><li>Require an email, password, or GitHub account</li><li>Bypass publisher access controls</li></ul>
           </div>
           <form method="post" action="/authorize?consent_state=${encodeURIComponent(options.consentState)}" class="actions right">
             <button class="button secondary" type="submit" name="decision" value="deny">Cancel</button>
@@ -106,6 +106,8 @@ export function renderGitHubContinue(githubUrl: string): Response {
 
 export function renderAccount(options: AccountPageOptions): Response {
   const avatar = safeAvatarUrl(options.user.avatarUrl);
+  const identityLabel =
+    options.user.identityProvider === "pseudonymous" ? "Private account" : "Signed in with GitHub";
   const grantCards = options.grants.length
     ? options.grants
         .map((grant) => {
@@ -135,7 +137,7 @@ export function renderAccount(options: AccountPageOptions): Response {
         ${options.notice ? `<div class="notice">${escapeHtml(options.notice)}</div>` : ""}
         <section class="profile card">
           ${avatar ? `<img src="${escapeHtml(avatar)}" alt="" width="64" height="64">` : `<div class="avatar-fallback">${escapeHtml(options.user.login.slice(0, 1).toUpperCase())}</div>`}
-          <div><span class="eyebrow">Signed in with GitHub</span><h1>${escapeHtml(options.user.displayName)}</h1><p>@${escapeHtml(options.user.login)}</p></div>
+          <div><span class="eyebrow">${identityLabel}</span><h1>${escapeHtml(options.user.displayName)}</h1><p>@${escapeHtml(options.user.login)}</p></div>
         </section>
         <section class="card settings">
           <div class="section-heading"><div><span class="eyebrow">Access</span><h2>Connected MCP clients</h2></div><span class="count">${options.grants.length}</span></div>
@@ -161,7 +163,7 @@ export function renderAccount(options: AccountPageOptions): Response {
         </section>
         <section class="card danger-zone">
           <span class="eyebrow">Account data</span><h2>Delete hosted account data</h2>
-          <p>This revokes every connected MCP client, removes encrypted provider settings, and signs you out. Pseudonymous usage events do not store your GitHub name or raw account ID and expire automatically after three months.</p>
+          <p>This revokes every connected MCP client, removes encrypted provider settings, and signs you out. Pseudonymous usage events do not store your account name or raw account ID and expire automatically after three months.</p>
           <form method="post" action="/account/delete" class="provider-form">
             <input type="hidden" name="csrf_token" value="${escapeHtml(options.csrfToken)}">
             <label for="delete-confirmation">Type <strong>${escapeHtml(options.user.login)}</strong> to confirm</label>

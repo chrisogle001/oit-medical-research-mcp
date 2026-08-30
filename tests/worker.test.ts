@@ -68,7 +68,7 @@ describe("Cloudflare Worker boundary", () => {
     const response = await fetchWorker(new Request("https://example.workers.dev/"));
     const body = await response.text();
     expect(response.status).toBe(200);
-    expect(body).toContain("Sign in with GitHub");
+    expect(body).toContain("Manage hosted account");
     expect(body).toContain("https://example.workers.dev/mcp");
   });
 

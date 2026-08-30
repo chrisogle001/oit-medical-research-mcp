@@ -62,17 +62,17 @@ npx wrangler login
 npm run deploy:cloudflare
 ```
 
-The first deployment creates separate OAuth and encrypted-user-settings KV bindings and reveals the Worker URL. Create a GitHub OAuth App with `https://<your-worker>/callback` as its callback, then store `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, a random `COOKIE_ENCRYPTION_KEY`, and a different random `USER_DATA_ENCRYPTION_KEY` with `wrangler secret put`. Both random secrets must contain at least 32 characters. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
+The first deployment creates separate OAuth and encrypted-user-settings KV bindings and reveals the Worker URL. Store a random `COOKIE_ENCRYPTION_KEY` and a different random `USER_DATA_ENCRYPTION_KEY` with `wrangler secret put`; both must contain at least 32 characters. GitHub is not required for MCP connections. A self-deployer may optionally configure a GitHub OAuth App for recoverable GitHub-backed account management. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
 
-Ogle IT Services hosts the production deployment at [oit-medical-research-mcp.oit-medical-research-mcp.workers.dev](https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev). Its remote MCP endpoint is `/mcp`; independent installations continue to use their own Cloudflare and GitHub accounts.
+Ogle IT Services hosts the production deployment at [oit-medical-research-mcp.oit-medical-research-mcp.workers.dev](https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev). Its remote MCP endpoint is `/mcp`; independent installations use their own Cloudflare accounts and, optionally, their own GitHub OAuth Apps.
 
-Configure a compatible client with `https://<your-worker>/mcp`. Anonymous access is rejected; the client discovers OAuth automatically and opens a browser consent flow. Concurrent client connection attempts are isolated with short-lived per-request state. A valid eight-hour browser session is reused, so GitHub identity verification happens only when the user is not already signed in.
+Configure a compatible client with `https://<your-worker>/mcp`. Unauthenticated bearer access is rejected; the client discovers OAuth automatically and opens a browser consent flow. Approval creates a cryptographically random pseudonymous account and signed browser session, so no email, password, or GitHub account is required. Concurrent client connection attempts are isolated with short-lived per-request state, and a valid eight-hour browser session is reused.
 
 For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as comma-separated Worker variables. Browser Origins remain validated by default.
 
 ## Configuration and privacy
 
-Credentials are read only from the local process environment, Cloudflare secrets, or the hosted account page. They are never accepted as MCP tool arguments. A hosted user's optional NCBI key is encrypted with AES-GCM before it reaches KV and is never displayed again. The server does not log research queries, article identifiers, article text, GitHub names, or credentials. Hosted usage counters contain only a keyed account pseudonym, tool category, outcome, duration, and status.
+Credentials are read only from the local process environment, Cloudflare secrets, or the hosted account page. They are never accepted as MCP tool arguments. A hosted user's optional NCBI key is encrypted with AES-GCM before it reaches KV and is never displayed again. The server does not log research queries, article identifiers, article text, account names, or credentials. Hosted usage counters contain only a keyed account pseudonym, tool category, outcome, duration, and status.
 
 See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), [Threat model](docs/THREAT_MODEL.md), and [Cloudflare deployment](docs/CLOUDFLARE.md).
 
@@ -96,4 +96,4 @@ Run `npm run smoke:live` to verify the shared engine against live sources with j
 
 ## Status
 
-The shared foundation, structured literature search, article retrieval, author reconciliation, discovered-DOI enrichment through Crossref and Unpaywall, explicit full-text status, provider contribution diagnostics, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity with signed-session reuse, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.
+The shared foundation, structured literature search, article retrieval, author reconciliation, discovered-DOI enrichment through Crossref and Unpaywall, explicit full-text status, provider contribution diagnostics, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, no-email pseudonymous identity, optional GitHub account management, signed-session reuse, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.

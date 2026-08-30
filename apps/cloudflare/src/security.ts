@@ -16,6 +16,7 @@ export interface AuthenticatedUser {
   login: string;
   displayName: string;
   avatarUrl?: string;
+  identityProvider?: "github" | "pseudonymous";
   scopes?: string[];
 }
 
@@ -26,6 +27,9 @@ export function parseAuthenticatedUser(value: unknown): AuthenticatedUser | null
     typeof value.login !== "string" ||
     typeof value.displayName !== "string" ||
     (value.avatarUrl !== undefined && typeof value.avatarUrl !== "string") ||
+    (value.identityProvider !== undefined &&
+      value.identityProvider !== "github" &&
+      value.identityProvider !== "pseudonymous") ||
     (value.scopes !== undefined &&
       (!Array.isArray(value.scopes) || value.scopes.some((scope) => typeof scope !== "string")))
   ) {
@@ -36,6 +40,7 @@ export function parseAuthenticatedUser(value: unknown): AuthenticatedUser | null
     login: value.login,
     displayName: value.displayName,
     ...(value.avatarUrl ? { avatarUrl: value.avatarUrl } : {}),
+    ...(value.identityProvider ? { identityProvider: value.identityProvider } : {}),
     ...(value.scopes ? { scopes: value.scopes } : {})
   };
 }
@@ -74,6 +79,16 @@ export function randomToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return toBase64Url(bytes);
+}
+
+export function createPseudonymousUser(): AuthenticatedUser {
+  const token = randomToken();
+  return {
+    userId: `pseudonymous:${token}`,
+    login: `private-${token.slice(0, 12).toLowerCase()}`,
+    displayName: "Private researcher",
+    identityProvider: "pseudonymous"
+  };
 }
 
 export function createCsrfCookie(token: string): string {
@@ -243,7 +258,8 @@ export async function readSession(
     userId: parsed.userId,
     login: parsed.login,
     displayName: parsed.displayName,
-    ...(parsed.avatarUrl ? { avatarUrl: parsed.avatarUrl } : {})
+    ...(parsed.avatarUrl ? { avatarUrl: parsed.avatarUrl } : {}),
+    ...(parsed.identityProvider ? { identityProvider: parsed.identityProvider } : {})
   };
 }
 

@@ -4,9 +4,9 @@
 
 - Local stdio inherits the permissions and environment of the person running it.
 - The Cloudflare MCP endpoint requires an OAuth access token issued for that exact MCP resource. Anonymous requests return HTTP 401 with standards-based discovery metadata.
-- GitHub establishes user identity after an explicit MCP-client consent screen. The GitHub access token is discarded after the profile lookup and is never stored in MCP grants or exposed to tools.
-- Consent and GitHub OAuth state are random, short-lived, and stored under namespaced per-request keys in `OAUTH_KV`. Each record is bound to the initiating browser with its own HMAC-protected `__Host-` cookie, so overlapping authorization attempts cannot overwrite one another. Validated records are deleted when consumed, and the matching cookie is cleared on success or failure. Consent remains a POST action; account mutations use a separate short-lived CSRF cookie.
-- Account sessions are short-lived and HMAC-signed. A valid session completes later MCP consent requests without repeating the upstream GitHub token exchange. Users can list and revoke their MCP client grants from `/account`.
+- After explicit MCP-client consent, the Worker creates a cryptographically random pseudonymous account. No email, password, or external identity account is required. Optional GitHub sign-in is limited to browser account management; its access token is discarded after the profile lookup and is never stored in MCP grants or exposed to tools.
+- Consent and optional GitHub OAuth state are random, short-lived, and stored under namespaced per-request keys in `OAUTH_KV`. Each record is bound to the initiating browser with its own HMAC-protected `__Host-` cookie, so overlapping authorization attempts cannot overwrite one another. Validated records are deleted when consumed, and the matching cookie is cleared on success or failure. Consent remains a POST action; account mutations use a separate short-lived CSRF cookie.
+- Account sessions are short-lived and HMAC-signed. A valid session completes later MCP consent requests under the same identity. Users can list and revoke their MCP client grants from `/account` while that signed session remains valid.
 - Protected MCP requests require the `mcp:research` scope. Research tool calls are limited to 30 per account per minute and oversized MCP request bodies are rejected before protocol parsing.
 - Provider fan-out is capped at three concurrent provider operations per research request.
 - Provider diagnostics expose only configured provider names and coarse outcomes. Raw upstream response bodies, URLs containing credentials, and exception messages are not returned to MCP clients.
@@ -23,7 +23,7 @@
 
 ## Data handling
 
-The application does not intentionally log search queries, article content, article identifiers, GitHub names, raw account IDs, or credentials. It sends queries and identifiers only to the selected literature providers. DOI and PMCID follow-up calls are derived only from normalized provider records and remain subject to the same bounded HTTP and response-size controls. Each operator remains responsible for the providers' terms and privacy policies.
+The application does not intentionally log search queries, article content, article identifiers, account names, raw account IDs, or credentials. It sends queries and identifiers only to the selected literature providers. DOI and PMCID follow-up calls are derived only from normalized provider records and remain subject to the same bounded HTTP and response-size controls. Each operator remains responsible for the providers' terms and privacy policies.
 
 Workers Analytics Engine receives one pseudonymous event per research tool call. The event contains a keyed account pseudonym, tool category, outcome, duration, and HTTP status. Cloudflare retains Analytics Engine data for three months. It is operational telemetry rather than billing-grade accounting because the platform may sample high-volume data.
 
@@ -31,7 +31,7 @@ Hosted users can remove their personal NCBI key or delete hosted account data fr
 
 Retention defaults are:
 
-- Consent and GitHub flow records and browser-binding cookies: 10 minutes.
+- Consent and optional GitHub flow records and browser-binding cookies: 10 minutes.
 - Account session cookie: 8 hours.
 - OAuth access token: 1 hour.
 - OAuth refresh token and grant: 30 days.

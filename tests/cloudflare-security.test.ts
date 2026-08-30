@@ -8,6 +8,7 @@ import {
   consumeConsentRequest,
   consumeOAuthFlow,
   createCsrfCookie,
+  createPseudonymousUser,
   createSessionCookie,
   parsePendingOAuthFlow,
   readSession,
@@ -96,6 +97,24 @@ describe("Cloudflare OAuth security helpers", () => {
       headers: { Cookie: tampered }
     });
     await expect(readSession(tamperedRequest, secret, 2_000)).resolves.toBeNull();
+  });
+
+  it("creates a random pseudonymous identity that survives a signed session", async () => {
+    const user = createPseudonymousUser();
+    expect(user).toMatchObject({
+      userId: expect.stringMatching(/^pseudonymous:/u),
+      login: expect.stringMatching(/^private-[a-z0-9_-]{12}$/u),
+      displayName: "Private researcher",
+      identityProvider: "pseudonymous"
+    });
+    const cookie = (await createSessionCookie(user, secret)).split(";", 1)[0]!;
+    const request = new Request("https://example.workers.dev/account", {
+      headers: { Cookie: cookie }
+    });
+    await expect(readSession(request, secret)).resolves.toMatchObject({
+      userId: user.userId,
+      identityProvider: "pseudonymous"
+    });
   });
 
   it("requires the form CSRF token to match its secure cookie", async () => {
