@@ -117,7 +117,7 @@ try {
   }
   const catalog = await callMcp("tools/list", {});
   const tools = (catalog.result?.tools || []).flatMap((tool) => (tool.name ? [tool.name] : [])).sort();
-  if (tools.join(",") !== "citations,fetch,search") {
+  if (tools.join(",") !== "annotations,citations,fetch,search") {
     throw new Error(`Unexpected tool catalog: ${tools.join(", ")}`);
   }
   const searchCall = await callMcp("tools/call", {
@@ -208,6 +208,42 @@ try {
     throw new Error("Known retracted publication was not clearly labeled.");
   }
 
+  const annotationsCall = await callMcp("tools/call", {
+    name: "annotations",
+    arguments: {
+      id: "pmid:21494379",
+      limit: 3,
+      types: ["Chemicals"],
+      sections: ["Title", "Abstract"],
+      providers: ["Europe PMC"]
+    }
+  });
+  const annotationsContent = annotationsCall.result?.content?.[0];
+  if (annotationsContent?.type !== "text" || !annotationsContent.text) {
+    throw new Error("Annotations returned no MCP text content.");
+  }
+  const annotations = JSON.parse(annotationsContent.text) as {
+    source?: string;
+    total?: number;
+    annotations?: Array<{ text?: string; type?: string; tags?: unknown }>;
+    disclaimer?: string;
+  };
+  if (
+    annotations.source !== "europe-pmc" ||
+    (annotations.total ?? 0) < 3 ||
+    annotations.annotations?.length !== 3 ||
+    !annotations.annotations.every(
+      (annotation) =>
+        Boolean(annotation.text) &&
+        annotation.type === "Chemicals" &&
+        Array.isArray(annotation.tags) &&
+        annotation.tags.length > 0
+    ) ||
+    !annotations.disclaimer?.includes("may be incomplete or incorrect")
+  ) {
+    throw new Error("Authenticated annotation lookup returned an incomplete normalized response.");
+  }
+
   const citationsCall = await callMcp("tools/call", {
     name: "citations",
     arguments: { id: "pmid:32678530", direction: "references", limit: 3 }
@@ -245,6 +281,9 @@ try {
         fetchedTextCharacters: article.text.length,
         retractedFixtureId: retractedArticle.id,
         retractedFixtureWarning: retractedArticle.metadata.statusWarnings,
+        annotationSource: annotations.source,
+        annotationTotal: annotations.total,
+        annotationResultCount: annotations.annotations.length,
         citationDirection: citations.direction,
         citationTotal: citations.total,
         citationResultCount: citations.results.length

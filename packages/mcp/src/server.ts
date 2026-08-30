@@ -66,11 +66,40 @@ const CitationsInput = z.object({
     .describe("Maximum number of normalized citation records to return. Defaults to the server limit.")
 });
 
+const AnnotationFilter = z
+  .array(z.string().trim().min(1).max(100))
+  .max(5)
+  .optional();
+
+const AnnotationsInput = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(2_048)
+    .describe("A search result ID, PMID, PMCID, DOI, or supported article URL."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Maximum annotation mentions to return. Defaults to 50."),
+  types: AnnotationFilter.describe(
+    "Optional annotation types, such as Chemicals, Diseases, Gene_Proteins, Organisms, or Experimental Methods."
+  ),
+  sections: AnnotationFilter.describe(
+    "Optional article sections, such as Title, Abstract, Methods, Results, Discussion, or Data Availability."
+  ),
+  providers: AnnotationFilter.describe(
+    "Optional text-mining providers, such as Europe PMC, OpenTargets, DisGeNET, or PubTator_NCBI."
+  )
+});
+
 export function createMedicalResearchMcpServer(options: ResearchServiceOptions = {}): McpServer {
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.4.0"
+    version: "0.5.0"
   });
 
   server.registerTool(
@@ -113,6 +142,30 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
       }
     },
     async ({ id, direction, limit }) => toolResult(() => service.citations(id, direction, limit))
+  );
+
+  server.registerTool(
+    "annotations",
+    {
+      title: "Get biomedical annotations for an article",
+      description:
+        "Retrieve bounded, text-mined biomedical mentions for one article from Europe PMC, optionally filtered by annotation type, article section, or provider. Results include surrounding context and linked database entities, plus a warning that annotations may be incomplete or incorrect.",
+      inputSchema: AnnotationsInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async ({ id, limit, types, sections, providers }) =>
+      toolResult(() =>
+        service.annotations(id, limit, {
+          ...(types !== undefined ? { types } : {}),
+          ...(sections !== undefined ? { sections } : {}),
+          ...(providers !== undefined ? { providers } : {})
+        })
+      )
   );
 
   server.registerTool(

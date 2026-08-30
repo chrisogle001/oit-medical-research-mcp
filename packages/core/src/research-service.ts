@@ -6,6 +6,8 @@ import { PubMedProvider } from "./providers/pubmed.js";
 import { UnpaywallProvider } from "./providers/unpaywall.js";
 import { researchStatusWarnings } from "./publication-status.js";
 import type {
+  AnnotationFilters,
+  AnnotationResponse,
   CitationDirection,
   CitationResponse,
   FetchResponse,
@@ -20,6 +22,8 @@ import type {
 const DEFAULT_CONTACT_EMAIL = "research-api@ogleits.com";
 const MIN_PUBLICATION_YEAR = 1800;
 const MAX_PUBLICATION_YEAR = 2100;
+const ANNOTATION_DISCLAIMER =
+  "Europe PMC annotations are automated or contributed text-mining signals. They may be incomplete or incorrect and are not validated clinical findings.";
 
 export class ResearchService {
   private readonly providers: ResearchProvider[];
@@ -123,6 +127,46 @@ export class ResearchService {
     };
   }
 
+  async annotations(
+    id: string,
+    requestedLimit?: number,
+    filters: AnnotationFilters = {}
+  ): Promise<AnnotationResponse> {
+    if (id.length > 2_048) throw new Error("The article identifier is too long.");
+    const identifier = parseIdentifier(id);
+    const resultLimit = Math.min(100, positiveInteger(requestedLimit, 50));
+    const normalizedFilters = normalizeAnnotationFilters(filters);
+    const providers = this.providers.filter((provider) => typeof provider.annotations === "function");
+    if (providers.length === 0) {
+      throw new Error("Article annotation lookup is not supported by the configured literature sources.");
+    }
+
+    const settled = await settleWithConcurrency(
+      providers,
+      this.maxProviderConcurrency,
+      (provider) => provider.annotations!(identifier, resultLimit, normalizedFilters)
+    );
+    const responses = settled.flatMap((result) =>
+      result.status === "fulfilled" && result.value ? [result.value] : []
+    );
+    if (responses.length === 0 && settled.every((result) => result.status === "rejected")) {
+      throw new Error("The Europe PMC annotation service is temporarily unavailable.");
+    }
+    if (responses.length === 0) throw new Error(`No article was found for ${id}.`);
+
+    const article = mergeRecords(responses.map((response) => response.article));
+    const annotations = responses
+      .flatMap((response) => response.annotations)
+      .slice(0, resultLimit);
+    return {
+      article: toSearchResult(article),
+      source: "europe-pmc",
+      total: Math.max(...responses.map((response) => response.total), annotations.length),
+      annotations,
+      disclaimer: ANNOTATION_DISCLAIMER
+    };
+  }
+
   async fetch(id: string): Promise<FetchResponse> {
     if (id.length > 2_048) throw new Error("The article identifier is too long.");
     const identifier = parseIdentifier(id);
@@ -207,6 +251,29 @@ function normalizeSearchFilters(filters: SearchFilters): SearchFilters {
     ...(journals.length ? { journals } : {}),
     ...(filters.fullTextOnly === true ? { fullTextOnly: true } : {})
   };
+}
+
+function normalizeAnnotationFilters(filters: AnnotationFilters): AnnotationFilters {
+  return {
+    ...normalizedAnnotationFilterList(filters.types, "types"),
+    ...normalizedAnnotationFilterList(filters.sections, "sections"),
+    ...normalizedAnnotationFilterList(filters.providers, "providers")
+  };
+}
+
+function normalizedAnnotationFilterList(
+  values: string[] | undefined,
+  key: keyof AnnotationFilters
+): Partial<AnnotationFilters> {
+  if (!values) return {};
+  const normalized = [...new Set(values.map((value) => value.replace(/\s+/g, " ").trim()))].filter(
+    Boolean
+  );
+  if (normalized.length > 5) throw new Error(`Annotation ${key} can contain at most five values.`);
+  if (normalized.some((value) => value.length > 100 || !/[a-z0-9]/i.test(value))) {
+    throw new Error(`Enter valid annotation ${key}.`);
+  }
+  return normalized.length ? { [key]: normalized } : {};
 }
 
 function optionalYear(value: number | undefined, field: string): number | undefined {

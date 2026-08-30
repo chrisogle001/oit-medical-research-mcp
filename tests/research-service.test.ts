@@ -218,6 +218,73 @@ describe("ResearchService", () => {
     );
   });
 
+  it("returns normalized article annotations with an explicit text-mining disclaimer", async () => {
+    let receivedFilters: unknown;
+    const provider: ResearchProvider = {
+      name: "europe-pmc",
+      async search() {
+        return [];
+      },
+      async fetch() {
+        return null;
+      },
+      async annotations(identifier, limit, filters) {
+        expect(identifier).toEqual({ type: "pmid", value: "21494379" });
+        expect(limit).toBe(1);
+        receivedFilters = filters;
+        return {
+          article: {
+            title: "Fluoride concentration in beverages",
+            publicationTypes: ["Journal Article"],
+            identifiers: { pmid: "21494379", pmcid: "PMC3075991" },
+            providers: ["europe-pmc"]
+          },
+          total: 8,
+          annotations: [
+            {
+              text: "fluoride",
+              type: "Chemicals",
+              section: "Abstract",
+              tags: [{ name: "fluoride", uri: "http://purl.obolibrary.org/obo/CHEBI_17051" }]
+            }
+          ]
+        };
+      }
+    };
+    const service = new ResearchService({ providers: [provider] });
+
+    const result = await service.annotations("pmid:21494379", 1, {
+      types: [" Chemicals ", "Chemicals"],
+      sections: ["Abstract"],
+      providers: ["Europe PMC"]
+    });
+
+    expect(receivedFilters).toEqual({
+      types: ["Chemicals"],
+      sections: ["Abstract"],
+      providers: ["Europe PMC"]
+    });
+    expect(result).toMatchObject({
+      article: {
+        id: "pmcid:PMC3075991",
+        publicationTypes: ["Journal Article"],
+        isPreprint: false,
+        isRetracted: false
+      },
+      source: "europe-pmc",
+      total: 8,
+      annotations: [{ text: "fluoride", type: "Chemicals", section: "Abstract" }]
+    });
+    expect(result.disclaimer).toContain("may be incomplete or incorrect");
+  });
+
+  it("reports when configured providers do not support article annotations", async () => {
+    const service = new ResearchService({ providers: [pubmed] });
+    await expect(service.annotations("pmid:123")).rejects.toThrow(
+      "Article annotation lookup is not supported"
+    );
+  });
+
   it("ranks title matches ahead of broad provider results", async () => {
     const provider: ResearchProvider = {
       name: "pubmed",

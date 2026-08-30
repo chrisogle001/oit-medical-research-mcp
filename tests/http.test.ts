@@ -35,4 +35,18 @@ describe("provider HTTP requests", () => {
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects an upstream JSON response above the configured byte limit", async () => {
+    const fetcher = vi.fn<FetchLike>().mockResolvedValue(
+      new Response(JSON.stringify({ value: "too large" }), {
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    await expect(
+      fetchJson(fetcher, "bounded-provider", new URL("https://example.test"), {
+        maxResponseBytes: 5
+      })
+    ).rejects.toThrow("unexpectedly large response");
+  });
 });

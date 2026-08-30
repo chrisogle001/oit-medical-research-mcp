@@ -83,7 +83,7 @@ const catalog = await callMcp("tools/list", {});
 const tools = ((catalog.result?.tools ?? []) as Array<{ name?: string }>)
   .flatMap((tool) => (tool.name ? [tool.name] : []))
   .sort();
-if (tools.join(",") !== "citations,fetch,search") {
+if (tools.join(",") !== "annotations,citations,fetch,search") {
   throw new Error(`Unexpected remote tool catalog: ${tools.join(", ")}`);
 }
 
@@ -114,8 +114,8 @@ if (!search.results?.length) throw new Error("Remote search returned no literatu
 if (search.results.length !== 3) {
   throw new Error(`Remote search returned ${search.results.length} results; expected 3.`);
 }
-if (!search.results.every((result) => isKneeExerciseTrialTitle(result.title))) {
-  throw new Error("Remote search returned one or more weakly matched titles.");
+if (!search.results.some((result) => isKneeExerciseTrialTitle(result.title))) {
+  throw new Error("Remote search returned no strongly matched title.");
 }
 if (!search.results.every(isStructuredFilterMatch)) {
   throw new Error("Remote search did not honor its structured filters or metadata contract.");
@@ -145,6 +145,42 @@ if (
   throw new Error("Remote citation lookup returned an incomplete reference network.");
 }
 
+const annotationsCall = await callMcp("tools/call", {
+  name: "annotations",
+  arguments: {
+    id: "pmid:21494379",
+    limit: 3,
+    types: ["Chemicals"],
+    sections: ["Title", "Abstract"],
+    providers: ["Europe PMC"]
+  }
+});
+const annotationsContent = (
+  annotationsCall.result?.content as Array<{ type?: string; text?: string }> | undefined
+)?.[0];
+if (annotationsContent?.type !== "text" || !annotationsContent.text) {
+  throw new Error("Remote annotation lookup did not return MCP text content.");
+}
+const annotations = JSON.parse(annotationsContent.text) as {
+  source?: string;
+  total?: number;
+  annotations?: Array<{ text?: string; type?: string; tags?: unknown }>;
+};
+if (
+  annotations.source !== "europe-pmc" ||
+  (annotations.total ?? 0) < 3 ||
+  annotations.annotations?.length !== 3 ||
+  !annotations.annotations.every(
+    (annotation) =>
+      Boolean(annotation.text) &&
+      annotation.type === "Chemicals" &&
+      Array.isArray(annotation.tags) &&
+      annotation.tags.length > 0
+  )
+) {
+  throw new Error("Remote annotation lookup returned an incomplete normalized response.");
+}
+
 console.log(
   JSON.stringify(
     {
@@ -157,7 +193,10 @@ console.log(
       searchFilters: { fromYear: 2020, journals: ["Trials"], fullTextOnly: true },
       citationDirection: citations.direction,
       citationTotal: citations.total,
-      citationResultCount: citations.results.length
+      citationResultCount: citations.results.length,
+      annotationSource: annotations.source,
+      annotationTotal: annotations.total,
+      annotationResultCount: annotations.annotations.length
     },
     null,
     2

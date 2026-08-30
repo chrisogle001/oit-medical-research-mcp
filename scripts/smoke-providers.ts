@@ -110,6 +110,34 @@ await check("europe-pmc.citations", async () => {
   };
 });
 
+await check("europe-pmc.annotations", async () => {
+  const result = await europePmc.annotations(
+    { type: "pmid", value: "21494379" },
+    3,
+    { types: ["Chemicals"], sections: ["Title", "Abstract"], providers: ["Europe PMC"] }
+  );
+  assert(result, "The annotation fixture could not be resolved.");
+  assert(result.total >= 3, "Europe PMC returned too few chemical annotation mentions.");
+  assert(result.annotations.length === 3, "Europe PMC did not honor the annotation result limit.");
+  assert(
+    result.annotations.every(
+      (annotation) =>
+        annotation.type === "Chemicals" &&
+        (annotation.section === "Title" || annotation.section === "Abstract") &&
+        annotation.text.length > 0 &&
+        annotation.tags.length > 0
+    ),
+    "Europe PMC returned an incomplete or incorrectly filtered annotation."
+  );
+  return {
+    article: result.article.identifiers.pmid,
+    total: result.total,
+    returned: result.annotations.length,
+    firstAnnotation: result.annotations[0]?.text,
+    firstTag: result.annotations[0]?.tags[0]?.name
+  };
+});
+
 await check("crossref.search", async () => {
   const records = await crossref.search(fixture.title, 5);
   assert(records.length > 0, "The title search returned no records.");

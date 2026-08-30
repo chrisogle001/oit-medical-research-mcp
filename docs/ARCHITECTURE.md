@@ -21,7 +21,7 @@ MCP client
                     │
                     ▼
              packages/mcp
-      search(), fetch(), citations()
+   search(), fetch(), citations(), annotations()
                     │
                     ▼
              packages/core
@@ -41,6 +41,8 @@ The resolver merges independent provider records by DOI, PMID, PMCID, and normal
 Publication status is merged conservatively across providers. PubMed publication types and retraction relationships, Europe PMC source/type/correction metadata, and Crossref update relationships can establish a positive flag. A positive status from any provider survives record merging. Normalized search and fetch responses always expose boolean `isPreprint` and `isRetracted` fields, while positive statuses also include a human-readable warning. Crossref `posted-content` alone is not sufficient to claim an item is a preprint because that category also contains other posted works.
 
 Citation lookup resolves any accepted article identifier through Europe PMC, then retrieves either its references or papers that cite it from Europe PMC's open citation network. Returned citation records are normalized into the same stable IDs and metadata shape as search results, so they can be passed directly to `fetch` or used for another citation hop.
+
+Annotation lookup resolves any accepted article identifier through Europe PMC, then retrieves text-mined mentions for that article. Clients may filter by annotation type, article section, or contributing provider. Mention text, bounded surrounding context, section metadata, and public entity links are normalized into a compact response. The tool always identifies annotations as potentially incomplete or incorrect text-mining signals; they are not presented as curated clinical conclusions.
 
 `fullTextOnly` means the article is retrievable from PMC or Europe PMC. Crossref metadata alone is not treated as proof of repository full-text availability. The resolver returns article text only when it comes from a lawful repository endpoint; otherwise `fetch` returns an abstract or metadata plus the best legal access location.
 

@@ -9,17 +9,20 @@ A portable, read-only MCP server for searching medical literature and retrieving
 - Crossref
 - Unpaywall for lawful open-access resolution
 
-The public MCP interface provides three interoperable, read-only tools:
+The public MCP interface provides four interoperable, read-only tools:
 
 - `search({ query, limit?, fromYear?, toYear?, journals?, fullTextOnly? })` returns up to the requested number of deduplicated results (subject to the server cap). Each result includes its stable ID, title, URL, identifiers, providers, repository-full-text availability, publication types, explicit preprint and retraction flags, and available journal, date, author, open-access, and citation metadata.
 - `fetch({ id })` returns normalized text, metadata, identifiers, provenance, license, access links, publication types, and explicit preprint and retraction flags.
 - `citations({ id, direction, limit? })` explores Europe PMC's open citation network. Use `direction: "references"` for papers cited by the article or `direction: "citedBy"` for papers that cite it. Results use the same stable, fetchable IDs as search.
+- `annotations({ id, limit?, types?, sections?, providers? })` retrieves bounded, text-mined biomedical mentions for one article through Europe PMC. Results include the mentioned text, surrounding context, article section, annotation provider, and links to recognized database entities when available.
 
 Search filters are optional and work the same way locally and on Cloudflare. `journals` accepts up to five journal titles or common abbreviations. `fullTextOnly: true` restricts results to articles whose full text can be retrieved lawfully from PMC or Europe PMC; it does not bypass publisher access controls.
 
 This is a research retrieval tool, not medical advice. It does not bypass paywalls.
 
 Preprints and retracted publications receive human-readable `statusWarnings` in addition to machine-readable `isPreprint` and `isRetracted` fields. An absent provider flag is never treated as proof of peer review, but the normalized public response always includes both booleans so clients do not have to infer them from titles.
+
+Annotations are discovery aids, not verified evidence. Every annotation response states that automated or contributed text-mining signals may be incomplete or incorrect. Inputs accept up to five values for each filter and responses are capped at 100 mentions; unusually large upstream payloads are rejected before processing.
 
 ## Local installation
 
@@ -85,8 +88,8 @@ npm run smoke:providers
 
 This checks targeted searches and a stable cross-provider article through PubMed, Europe PMC, Crossref, and Unpaywall, and exits unsuccessfully if any individual source fails. `CONTACT_EMAIL` and `NCBI_API_KEY` are honored when set. Unpaywall is verified through DOI retrieval because it is a fetch-only enrichment source in this server.
 
-Run `npm run smoke:live` to verify the shared engine against live sources with journal, publication-year, and repository-full-text filters, article retrieval, publication-status labeling, a known retracted-publication fixture, and a stable Europe PMC citation-network fixture.
+Run `npm run smoke:live` to verify the shared engine against live sources with journal, publication-year, and repository-full-text filters, article retrieval, publication-status labeling, a known retracted-publication fixture, a stable Europe PMC citation-network fixture, and filtered biomedical annotations.
 
 ## Status
 
-The shared foundation, structured literature search, article retrieval, publication-type and safety-status labeling, open citation-network exploration, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.
+The shared foundation, structured literature search, article retrieval, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, GitHub identity, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.

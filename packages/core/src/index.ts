@@ -4,6 +4,10 @@ export { deduplicateRecords, mergeRecords } from "./records.js";
 export { decodeXml, firstTag, normalizeWhitespace, xmlToText } from "./xml.js";
 export type {
   ArticleIdentifiers,
+  AnnotationFilters,
+  AnnotationProviderResponse,
+  AnnotationResponse,
+  AnnotationTag,
   CanonicalIdentifier,
   CitationDirection,
   CitationProviderResponse,
@@ -13,6 +17,7 @@ export type {
   ProviderContext,
   ProviderName,
   ResearchProvider,
+  ResearchAnnotation,
   ResearchRecord,
   ResearchServiceOptions,
   SearchFilters,

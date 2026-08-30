@@ -7,11 +7,14 @@ import {
 } from "../publication-status.js";
 import { firstTag, tagBlock, tagBlocks, xmlToText } from "../xml.js";
 import type {
+  AnnotationFilters,
+  AnnotationProviderResponse,
   CanonicalIdentifier,
   CitationDirection,
   CitationProviderResponse,
   ProviderContext,
   ResearchProvider,
+  ResearchAnnotation,
   ResearchRecord,
   SearchFilters
 } from "../types.js";
@@ -47,6 +50,24 @@ interface EuropePmcCitationPayload {
   hitCount?: number;
   referenceList?: { reference?: EuropePmcResult[] };
   citationList?: { citation?: EuropePmcResult[] };
+}
+
+interface EuropePmcAnnotation {
+  prefix?: string;
+  exact?: string;
+  postfix?: string;
+  tags?: Array<{ name?: string; uri?: string }>;
+  id?: string;
+  type?: string;
+  section?: string;
+  provider?: string;
+}
+
+interface EuropePmcAnnotationArticle {
+  source?: string;
+  extId?: string;
+  pmcid?: string;
+  annotations?: EuropePmcAnnotation[];
 }
 
 export class EuropePmcProvider implements ResearchProvider {
@@ -127,6 +148,49 @@ export class EuropePmcProvider implements ResearchProvider {
       article: this.toRecord(resolved),
       total: payload.hitCount ?? results.length,
       records: results.map((result) => this.toRecord(result))
+    };
+  }
+
+  async annotations(
+    identifier: CanonicalIdentifier,
+    limit: number,
+    filters: AnnotationFilters = {}
+  ): Promise<AnnotationProviderResponse | null> {
+    const query = this.identifierQuery(identifier);
+    if (!query) return null;
+    const resolved = (await this.searchApi(query, 1, "core")).resultList?.result?.[0];
+    if (!resolved?.source || !resolved.id) return null;
+
+    const source = resolved.source.toUpperCase();
+    const externalId = source === "PMC" ? resolved.id.replace(/^PMC/i, "") : resolved.id;
+    const url = new URL(
+      "https://www.ebi.ac.uk/europepmc/annotations_api/annotationsByArticleIds"
+    );
+    url.searchParams.set("articleIds", `${source}:${externalId}`);
+    for (const type of filters.types ?? []) url.searchParams.append("type", type);
+    for (const section of filters.sections ?? []) url.searchParams.append("section", section);
+    for (const provider of filters.providers ?? []) url.searchParams.append("provider", provider);
+    url.searchParams.set("format", "JSON");
+
+    const payload = await fetchJson<EuropePmcAnnotationArticle[]>(
+      this.context.fetch,
+      this.name,
+      url,
+      { timeoutMs: 15_000, maxAttempts: 1, maxResponseBytes: 5_000_000 }
+    );
+    const annotations = uniqueAnnotations(
+      payload.flatMap((article) =>
+        (article.annotations ?? []).flatMap((annotation) => {
+          const normalized = normalizeAnnotation(annotation);
+          return normalized ? [normalized] : [];
+        })
+      )
+    );
+
+    return {
+      article: this.toRecord(resolved),
+      total: annotations.length,
+      annotations: annotations.slice(0, limit)
     };
   }
 
@@ -224,4 +288,92 @@ function europePmcSearchQuery(query: string, filters: SearchFilters): string {
 
 function fieldPhrase(value: string): string {
   return value.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeAnnotation(annotation: EuropePmcAnnotation): ResearchAnnotation | null {
+  const text = limitedText(annotation.exact, 1_000);
+  if (!text) return null;
+  const type = limitedText(annotation.type, 100) ?? "Unknown";
+  const section = parseAnnotationSection(annotation.section);
+  const tags = uniqueAnnotationTags(
+    (annotation.tags ?? []).flatMap((tag) => {
+      const name = limitedText(tag.name, 300);
+      if (!name) return [];
+      const uri = safeHttpUrl(tag.uri);
+      return uri ? [{ name, uri }] : [{ name }];
+    })
+  );
+  const provider = limitedText(annotation.provider, 100);
+  const prefix = limitedText(annotation.prefix, 500);
+  const postfix = limitedText(annotation.postfix, 500);
+  const url = safeHttpUrl(annotation.id);
+
+  return {
+    text,
+    type,
+    ...(section.name ? { section: section.name } : {}),
+    ...(section.uri ? { sectionUri: section.uri } : {}),
+    ...(provider ? { provider } : {}),
+    ...(prefix ? { prefix } : {}),
+    ...(postfix ? { postfix } : {}),
+    tags,
+    ...(url ? { url } : {})
+  };
+}
+
+function parseAnnotationSection(value: string | undefined): { name?: string; uri?: string } {
+  const normalized = limitedText(value, 500);
+  if (!normalized) return {};
+  const match = /^(.*?)\s*\((https?:\/\/[^)]+)\)\s*$/.exec(normalized);
+  if (!match) return { name: normalized };
+  const name = match[1]?.trim();
+  const uri = safeHttpUrl(match[2]);
+  return {
+    ...(name ? { name } : {}),
+    ...(uri ? { uri } : {})
+  };
+}
+
+function limitedText(value: string | undefined, maxLength: number): string | undefined {
+  const normalized = value ? xmlToText(value).replace(/\s+/g, " ").trim() : "";
+  return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+function safeHttpUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function uniqueAnnotationTags<T extends { name: string; uri?: string }>(tags: T[]): T[] {
+  const seen = new Set<string>();
+  return tags.filter((tag) => {
+    const key = `${tag.name.toLowerCase()}|${tag.uri ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function uniqueAnnotations(annotations: ResearchAnnotation[]): ResearchAnnotation[] {
+  const seen = new Set<string>();
+  return annotations.filter((annotation) => {
+    const key =
+      annotation.url ??
+      [
+        annotation.type,
+        annotation.section,
+        annotation.text,
+        annotation.prefix,
+        annotation.provider,
+        annotation.tags.map((tag) => `${tag.name}:${tag.uri ?? ""}`).join("|")
+      ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

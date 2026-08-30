@@ -21,7 +21,7 @@ try {
   });
   const tools = await client.listTools();
   const names = tools.tools.map((tool) => tool.name).sort();
-  if (names.join(",") !== "citations,fetch,search") {
+  if (names.join(",") !== "annotations,citations,fetch,search") {
     throw new Error(`Unexpected tool catalog: ${names.join(", ")}`);
   }
   const searchTool = tools.tools.find((tool) => tool.name === "search");
@@ -46,13 +46,22 @@ try {
   if (directionSchema?.enum?.join(",") !== "references,citedBy") {
     throw new Error("The citations tool did not advertise both citation directions.");
   }
+  const annotationsTool = tools.tools.find((tool) => tool.name === "annotations");
+  const annotationProperties = (
+    annotationsTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  const annotationInputs = Object.keys(annotationProperties ?? {}).sort();
+  if (annotationInputs.join(",") !== "id,limit,providers,sections,types") {
+    throw new Error("The annotations tool did not advertise the expected bounded filters.");
+  }
   console.log(
     JSON.stringify(
       {
         protocol: "connected",
         tools: names,
         searchInputs: expectedSearchInputs,
-        citationDirections: directionSchema.enum
+        citationDirections: directionSchema.enum,
+        annotationInputs
       },
       null,
       2

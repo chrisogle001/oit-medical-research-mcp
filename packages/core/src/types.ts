@@ -76,6 +76,43 @@ export interface CitationResponse {
   results: SearchResult[];
 }
 
+export interface AnnotationTag {
+  name: string;
+  uri?: string;
+}
+
+export interface ResearchAnnotation {
+  text: string;
+  type: string;
+  section?: string;
+  sectionUri?: string;
+  provider?: string;
+  prefix?: string;
+  postfix?: string;
+  tags: AnnotationTag[];
+  url?: string;
+}
+
+export interface AnnotationFilters {
+  types?: string[];
+  sections?: string[];
+  providers?: string[];
+}
+
+export interface AnnotationProviderResponse {
+  article: ResearchRecord;
+  total: number;
+  annotations: ResearchAnnotation[];
+}
+
+export interface AnnotationResponse {
+  article: SearchResult;
+  source: "europe-pmc";
+  total: number;
+  annotations: ResearchAnnotation[];
+  disclaimer: string;
+}
+
 export interface FetchResponse {
   id: string;
   title: string;
@@ -106,6 +143,11 @@ export interface ResearchProvider {
     direction: CitationDirection,
     limit: number
   ): Promise<CitationProviderResponse | null>;
+  annotations?(
+    identifier: CanonicalIdentifier,
+    limit: number,
+    filters?: AnnotationFilters
+  ): Promise<AnnotationProviderResponse | null>;
 }
 
 export interface ResearchServiceOptions {

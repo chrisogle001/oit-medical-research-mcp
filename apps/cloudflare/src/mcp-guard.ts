@@ -1,5 +1,5 @@
 const MAX_MCP_REQUEST_BYTES = 65_536;
-type ResearchToolName = "search" | "fetch" | "citations" | "other";
+type ResearchToolName = "search" | "fetch" | "citations" | "annotations" | "other";
 
 export type McpRequestClassification =
   | { kind: "other" }
@@ -34,7 +34,10 @@ export async function classifyMcpRequest(request: Request): Promise<McpRequestCl
   const name = isRecord(params) && typeof params.name === "string" ? params.name : "other";
   return {
     kind: "tool_call",
-    toolName: name === "search" || name === "fetch" || name === "citations" ? name : "other"
+    toolName:
+      name === "search" || name === "fetch" || name === "citations" || name === "annotations"
+        ? name
+        : "other"
   };
 }
 

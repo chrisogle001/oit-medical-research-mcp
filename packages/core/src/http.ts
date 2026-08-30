@@ -7,6 +7,7 @@ const RETRY_DELAY_MS = 250;
 interface FetchOptions {
   timeoutMs?: number;
   maxAttempts?: number;
+  maxResponseBytes?: number;
 }
 
 export class UpstreamError extends Error {
@@ -29,6 +30,10 @@ export async function fetchJson<T>(
   const response = await fetchWithTimeout(fetcher, url, options);
   if (!response.ok) {
     throw new UpstreamError(provider, `${provider} returned HTTP ${response.status}.`, response.status);
+  }
+  if (options.maxResponseBytes !== undefined) {
+    const text = await responseTextBounded(response, provider, options.maxResponseBytes);
+    return JSON.parse(text) as T;
   }
   return (await response.json()) as T;
 }
@@ -89,4 +94,37 @@ function isRetryableStatus(status: number): boolean {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function responseTextBounded(
+  response: Response,
+  provider: string,
+  maxBytes: number
+): Promise<string> {
+  const declaredLength = Number(response.headers.get("Content-Length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel();
+    throw new UpstreamError(provider, `${provider} returned an unexpectedly large response.`);
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new UpstreamError(provider, `${provider} returned an unexpectedly large response.`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
 }
