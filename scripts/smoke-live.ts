@@ -44,6 +44,14 @@ if (
 ) {
   throw new Error("Fetched article status metadata was incomplete.");
 }
+if (
+  !article.metadata.authors?.includes("Shaifuzain Ab Rahman") ||
+  !article.metadata.authors.includes("Amran Ahmed Shokri") ||
+  article.metadata.authors.includes("Ab Rahman S") ||
+  article.metadata.authors.includes("Ahmed Shokri A")
+) {
+  throw new Error("Fetched article authors were not conservatively reconciled.");
+}
 const retractedArticle = await service.fetch("pmid:32450107");
 if (
   retractedArticle.metadata.isRetracted !== true ||
@@ -84,6 +92,7 @@ console.log(
       firstResultIsRetracted: search.results[0]!.isRetracted,
       fetchedId: article.id,
       fetchedTitle: article.title,
+      fetchedAuthors: article.metadata.authors,
       textCharacters: article.text.length,
       providers: article.metadata.providers,
       textType: article.metadata.textType,

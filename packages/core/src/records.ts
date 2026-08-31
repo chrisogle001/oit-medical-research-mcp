@@ -228,9 +228,39 @@ function parseAuthorName(value: string): ParsedAuthorName | null {
 }
 
 function sameAuthor(left: ParsedAuthorName, right: ParsedAuthorName): boolean {
-  if (left.family !== right.family || left.initials !== right.initials) return false;
-  if (left.abbreviated || right.abbreviated) return true;
-  return left.given[0] === right.given[0];
+  if (left.family === right.family && left.initials === right.initials) {
+    if (left.abbreviated || right.abbreviated) return true;
+    return left.given[0] === right.given[0];
+  }
+  return (
+    expandedNameMatchesMultiWordFamily(left, right) ||
+    expandedNameMatchesMultiWordFamily(right, left)
+  );
+}
+
+function expandedNameMatchesMultiWordFamily(
+  abbreviated: ParsedAuthorName,
+  expanded: ParsedAuthorName
+): boolean {
+  if (!abbreviated.abbreviated || expanded.abbreviated || !abbreviated.family.includes(" ")) {
+    return false;
+  }
+  const expandedTokens = [...expanded.given, ...expanded.family.split(" ")];
+  const abbreviatedFamilyTokens = abbreviated.family.split(" ");
+  if (expandedTokens.length <= abbreviatedFamilyTokens.length) return false;
+  const familyOffset = expandedTokens.length - abbreviatedFamilyTokens.length;
+  if (
+    !abbreviatedFamilyTokens.every(
+      (token, index) => expandedTokens[familyOffset + index] === token
+    )
+  ) {
+    return false;
+  }
+  const expandedGivenInitials = expandedTokens
+    .slice(0, familyOffset)
+    .map((token) => token.slice(0, 1))
+    .join("");
+  return expandedGivenInitials === abbreviated.initials;
 }
 
 function normalizedAuthorText(value: string): string {

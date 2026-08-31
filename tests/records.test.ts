@@ -15,6 +15,25 @@ describe("record reconciliation", () => {
     ).toEqual(["Rebecca Spencer", "Alice B Smith", "Maria Garcia"]);
   });
 
+  it("merges abbreviated multi-word family names with expanded names", () => {
+    expect(
+      reconcileAuthors([
+        "Ab Rahman S",
+        "Ahmed Shokri A",
+        "Shaifuzain Ab Rahman",
+        "Amran Ahmed Shokri"
+      ])
+    ).toEqual(["Shaifuzain Ab Rahman", "Amran Ahmed Shokri"]);
+  });
+
+  it("keeps a multi-word family abbreviation separate when expanded matches are ambiguous", () => {
+    expect(reconcileAuthors(["Ab Rahman S", "Salma Ab Rahman", "Sofia Ab Rahman"])).toEqual([
+      "Ab Rahman S",
+      "Salma Ab Rahman",
+      "Sofia Ab Rahman"
+    ]);
+  });
+
   it("does not merge distinct authors who only share a surname or collective label", () => {
     expect(
       reconcileAuthors([
