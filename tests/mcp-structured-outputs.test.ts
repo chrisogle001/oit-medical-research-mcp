@@ -145,28 +145,38 @@ describe("MCP structured tool outputs", () => {
         name: "annotations",
         arguments: { id: "pmcid:PMC1234567", limit: 1 }
       });
-      expectCompatibleStructuredResult(annotations);
+      expectStructuredResult(annotations);
       expect(annotations.structuredContent).toMatchObject({
         source: "europe-pmc",
         total: 1,
         annotations: [{ type: "Diseases", section: "Abstract" }],
         providerDiagnostics: { contributed: ["europe-pmc"] }
       });
+      const annotationsText = getTextContent(annotations);
+      expect(annotationsText).toContain("source=europe-pmc");
+      expect(annotationsText).toContain("total=1");
+      expect(annotationsText).toContain("returned=1");
+      expect(annotationsText).toContain(
+        'providerDiagnostics={"attempted":["europe-pmc"],"contributed":["europe-pmc"]'
+      );
+      expect(annotationsText).toContain("[article]");
+      expect(annotationsText).toContain("id=pmcid:PMC1234567");
+      expect(annotationsText).toContain("[annotation 1]");
+      expect(annotationsText).toContain("text=knee osteoarthritis");
+      expect(annotationsText).toContain("type=Diseases");
+      expect(annotationsText).toContain("section=Abstract");
+      expect(annotationsText).toContain(
+        'tags=[{"name":"knee osteoarthritis","uri":"http://example.test/entity/1"}]'
+      );
+      expect(annotationsText).toContain(
+        "Europe PMC annotations are automated or contributed text-mining signals"
+      );
     } finally {
       await client.close();
       await server.close();
     }
   });
 });
-
-function expectCompatibleStructuredResult(result: {
-  content: Array<{ type: string; text?: string }>;
-  structuredContent?: unknown;
-}): void {
-  const text = result.content.find((item) => item.type === "text")?.text;
-  expect(text).toBeDefined();
-  expect(JSON.parse(text ?? "{}")).toEqual(result.structuredContent);
-}
 
 function expectStructuredResult(result: {
   content: Array<{ type: string; text?: string }>;
