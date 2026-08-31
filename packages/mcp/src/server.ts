@@ -1,11 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import {
   ResearchService,
-  type ResearchServiceOptions
+  type ResearchServiceOptions,
+  type SearchResponse
 } from "@oit-medical-research/core";
 import { z } from "zod";
 
 const MAX_FETCH_TEXT_CHARACTERS = 120_000;
+const MAX_MODEL_SEARCH_RESULTS = 10;
 
 const SearchInput = z.object({
   query: z
@@ -240,7 +242,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.9"
+    version: "0.6.10"
   });
 
   server.registerTool(
@@ -259,13 +261,15 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
       }
     },
     async ({ query, limit, fromYear, toYear, journals, fullTextOnly }) =>
-      toolResult(() =>
-        service.search(query, limit, {
-          ...(fromYear !== undefined ? { fromYear } : {}),
-          ...(toYear !== undefined ? { toYear } : {}),
-          ...(journals !== undefined ? { journals } : {}),
-          ...(fullTextOnly !== undefined ? { fullTextOnly } : {})
-        })
+      toolResult(
+        () =>
+          service.search(query, limit, {
+            ...(fromYear !== undefined ? { fromYear } : {}),
+            ...(toYear !== undefined ? { toYear } : {}),
+            ...(journals !== undefined ? { journals } : {}),
+            ...(fullTextOnly !== undefined ? { fullTextOnly } : {})
+          }),
+        formatSearchForModel
       )
   );
 
@@ -339,12 +343,15 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   return server;
 }
 
-async function toolResult<T>(operation: () => Promise<T>) {
+async function toolResult<T>(
+  operation: () => Promise<T>,
+  formatContent: (value: T) => string = (value) => JSON.stringify(value)
+) {
   try {
     const value = await operation();
     if (!isRecord(value)) throw new Error("The research tool returned an invalid result.");
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(value) }],
+      content: [{ type: "text" as const, text: formatContent(value) }],
       structuredContent: value
     };
   } catch (error) {
@@ -354,6 +361,32 @@ async function toolResult<T>(operation: () => Promise<T>) {
       content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }]
     };
   }
+}
+
+function formatSearchForModel(response: SearchResponse): string {
+  const includedResults = response.results.slice(0, MAX_MODEL_SEARCH_RESULTS);
+  return JSON.stringify({
+    resultCount: response.results.length,
+    modelSummaryCount: includedResults.length,
+    modelSummaryTruncated: includedResults.length < response.results.length,
+    results: includedResults.map((result) => ({
+      id: result.id,
+      title: result.title,
+      ...(result.journal !== undefined ? { journal: result.journal } : {}),
+      ...(result.publicationDate !== undefined
+        ? { publicationDate: result.publicationDate }
+        : {}),
+      ...(result.authors !== undefined ? { authors: result.authors } : {}),
+      providers: result.providers,
+      fullTextAvailable: result.fullTextAvailable,
+      fullTextStatus: result.fullTextStatus,
+      ...(result.isOpenAccess !== undefined ? { isOpenAccess: result.isOpenAccess } : {}),
+      isPreprint: result.isPreprint,
+      isRetracted: result.isRetracted,
+      ...(result.citationCount !== undefined ? { citationCount: result.citationCount } : {})
+    })),
+    providerDiagnostics: response.providerDiagnostics
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

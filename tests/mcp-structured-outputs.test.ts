@@ -71,7 +71,7 @@ describe("MCP structured tool outputs", () => {
         name: "search",
         arguments: { query: "knee osteoarthritis", limit: 1 }
       });
-      expectCompatibleStructuredResult(search);
+      expectStructuredResult(search);
       expect(search.structuredContent).toMatchObject({
         results: [
           {
@@ -87,6 +87,35 @@ describe("MCP structured tool outputs", () => {
           partialFailure: false
         }
       });
+      const searchText = getTextContent(search);
+      expect(JSON.parse(searchText)).toMatchObject({
+        resultCount: 1,
+        modelSummaryCount: 1,
+        modelSummaryTruncated: false,
+        results: [
+          {
+            id: "pmcid:PMC1234567",
+            title: "Structured MCP result fixture",
+            journal: "Trials",
+            publicationDate: "2025-06-20",
+            authors: ["Researcher A"],
+            providers: ["europe-pmc"],
+            fullTextAvailable: true,
+            fullTextStatus: "repository-indexed",
+            isOpenAccess: true,
+            isPreprint: false,
+            isRetracted: false
+          }
+        ],
+        providerDiagnostics: {
+          attempted: ["europe-pmc"],
+          contributed: ["europe-pmc"],
+          failed: [],
+          failures: [],
+          partialFailure: false
+        }
+      });
+      expect(searchText.length).toBeLessThan(JSON.stringify(search.structuredContent).length);
 
       const citations = await client.callTool({
         name: "citations",
@@ -124,4 +153,18 @@ function expectCompatibleStructuredResult(result: {
   const text = result.content.find((item) => item.type === "text")?.text;
   expect(text).toBeDefined();
   expect(JSON.parse(text ?? "{}")).toEqual(result.structuredContent);
+}
+
+function expectStructuredResult(result: {
+  content: Array<{ type: string; text?: string }>;
+  structuredContent?: unknown;
+}): void {
+  expect(getTextContent(result)).toBeTruthy();
+  expect(result.structuredContent).toBeDefined();
+}
+
+function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
+  const text = result.content.find((item) => item.type === "text")?.text;
+  expect(text).toBeDefined();
+  return text ?? "";
 }
