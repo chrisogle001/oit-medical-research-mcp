@@ -1,5 +1,9 @@
 # OIT - Medical Research MCP
 
+[![CI](https://github.com/chrisogle001/oit-medical-research-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/chrisogle001/oit-medical-research-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/oit-medical-research-mcp.svg)](https://www.npmjs.com/package/oit-medical-research-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A portable, read-only MCP server for searching medical literature and retrieving normalized metadata, abstracts, and lawful open full text. The same shared TypeScript research engine runs locally over stdio and remotely on Cloudflare Workers over Streamable HTTP.
 
 ## Initial sources
@@ -32,17 +36,22 @@ Annotations are discovery aids, not verified evidence. Every annotation response
 
 Requirements: Node.js 22 or newer.
 
-```powershell
-npm install
-npm run build
-npm link
-```
-
-Add the local MCP server to a compatible client with the command:
+Run the published stdio server directly:
 
 ```text
+npx -y oit-medical-research-mcp
+```
+
+Or install its command globally:
+
+```powershell
+npm install --global oit-medical-research-mcp
 oit-medical-research-mcp
 ```
+
+An MCP client configuration can use `npx` as the command and `-y`, `oit-medical-research-mcp` as its arguments. On Windows clients that require the executable suffix, use `npx.cmd`.
+
+To build from source instead, clone the repository and run `npm install`, `npm run build`, and `npm link`.
 
 Optional environment variables are shown in `.env.example`. NCBI and Europe PMC work without API keys; an NCBI key raises the NCBI request limit.
 
@@ -54,17 +63,23 @@ npm run start:local
 
 ## Deploy to your own Cloudflare account
 
-Anyone with access to this repository can deploy an independent copy into their own Cloudflare account:
+Use the one-click installer:
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chrisogle001/oit-medical-research-mcp)
+
+Cloudflare clones the public repository into the installer's account, provisions the Worker resources, and asks for two different random encryption secrets. GitHub credentials and literature-provider API keys are optional.
+
+For a command-line deployment into your own Cloudflare account:
 
 ```powershell
 npm install
 npx wrangler login
-npm run deploy:cloudflare
+npm run deploy
 ```
 
 The first deployment creates separate OAuth and encrypted-user-settings KV bindings and reveals the Worker URL. Store a random `COOKIE_ENCRYPTION_KEY` and a different random `USER_DATA_ENCRYPTION_KEY` with `wrangler secret put`; both must contain at least 32 characters. GitHub is not required for MCP connections. A self-deployer may optionally configure a GitHub OAuth App for recoverable GitHub-backed account management. Full instructions are in [Cloudflare deployment](docs/CLOUDFLARE.md).
 
-Ogle IT Services hosts the production deployment at [oit-medical-research-mcp.oit-medical-research-mcp.workers.dev](https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev). Its remote MCP endpoint is `/mcp`; independent installations use their own Cloudflare accounts and, optionally, their own GitHub OAuth Apps.
+Ogle IT Services hosts the production deployment at [research.chrisogle.com](https://research.chrisogle.com). Its remote MCP endpoint is [research.chrisogle.com/mcp](https://research.chrisogle.com/mcp). The previous Workers address remains active for existing client installations; new installations should use the custom domain. Independent installations use their own Cloudflare accounts and, optionally, their own GitHub OAuth Apps.
 
 Configure a compatible client with `https://<your-worker>/mcp`. Unauthenticated bearer access is rejected; the client discovers OAuth automatically and opens a browser consent flow. Approval creates a cryptographically random pseudonymous account and signed browser session, so no email, password, or GitHub account is required. Concurrent client connection attempts are isolated with short-lived per-request state, and a valid eight-hour browser session is reused.
 
@@ -74,7 +89,11 @@ For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as c
 
 Credentials are read only from the local process environment, Cloudflare secrets, or the hosted account page. They are never accepted as MCP tool arguments. A hosted user's optional NCBI key is encrypted with AES-GCM before it reaches KV and is never displayed again. The server does not log research queries, article identifiers, article text, account names, or credentials. Hosted usage counters contain only a keyed account pseudonym, tool category, outcome, duration, and status.
 
-See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), [Threat model](docs/THREAT_MODEL.md), and [Cloudflare deployment](docs/CLOUDFLARE.md).
+See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), [Threat model](docs/THREAT_MODEL.md), [Cloudflare deployment](docs/CLOUDFLARE.md), and [Releasing](docs/RELEASING.md).
+
+## License
+
+This project is available under the [MIT License](LICENSE). It may be used, copied, modified, and redistributed, including commercially, as long as the copyright and license notice are retained. The software is provided without warranty.
 
 ## Development checks
 

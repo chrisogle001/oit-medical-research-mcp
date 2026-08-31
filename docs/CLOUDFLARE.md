@@ -2,21 +2,27 @@
 
 Each person can install this project into their own Cloudflare account. GitHub is optional and is used only when the operator wants GitHub-backed account management. No Ogle IT Services Cloudflare credentials, GitHub OAuth credentials, or storage IDs are embedded in the repository.
 
+## One-click deployment
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chrisogle001/oit-medical-research-mcp)
+
+Cloudflare clones the repository into the installer's GitHub account, provisions the Worker and KV bindings, and asks for the two required encryption secrets described below. The root `wrangler.jsonc` is the independent-installation template and does not contain Ogle IT's custom domain.
+
 ## First deployment
 
 1. Install dependencies with `npm install`.
 2. Authenticate with `npx wrangler login`.
-3. Run `npm run deploy:cloudflare`. Wrangler automatically creates the `OAUTH_KV` and `USER_DATA_KV` namespaces and prints the new Worker URL. The Analytics Engine dataset is created on its first event. Authorization will remain safely unavailable until the two encryption secrets below are configured.
+3. Run `npm run deploy`. Wrangler automatically creates the `OAUTH_KV` and `USER_DATA_KV` namespaces and prints the new Worker URL. The Analytics Engine dataset is created on its first event. Authorization will remain safely unavailable until the two encryption secrets below are configured.
 4. Generate a random session-signing value of at least 32 characters and store it:
 
    ```powershell
-   npx wrangler secret put COOKIE_ENCRYPTION_KEY --env= --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put COOKIE_ENCRYPTION_KEY --config wrangler.jsonc
    ```
 
 5. Generate a different random value of at least 32 characters for personal provider settings and store it:
 
    ```powershell
-   npx wrangler secret put USER_DATA_ENCRYPTION_KEY --env= --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put USER_DATA_ENCRYPTION_KEY --config wrangler.jsonc
    ```
 
    Rotating this secret makes existing personal provider settings unreadable. Remove or migrate those settings before rotation.
@@ -24,10 +30,10 @@ Each person can install this project into their own Cloudflare account. GitHub i
 6. Optionally store an operator-wide NCBI API key for higher NCBI request limits. A user's encrypted personal key takes precedence for that user's requests:
 
    ```powershell
-   npx wrangler secret put NCBI_API_KEY --env= --config apps/cloudflare/wrangler.jsonc
+   npx wrangler secret put NCBI_API_KEY --config wrangler.jsonc
    ```
 
-7. Run `npm run deploy:cloudflare` again and configure a compatible MCP client with `https://<your-worker>/mcp`.
+7. Run `npm run deploy` again and configure a compatible MCP client with `https://<your-worker>/mcp`.
 
 The client discovers OAuth automatically. A browser page identifies the requesting MCP client and asks for consent. Approval creates a random pseudonymous account and signed session; no email, password, or external identity account is required.
 
@@ -36,15 +42,15 @@ The client discovers OAuth automatically. A browser page identifies the requesti
 GitHub is not part of the normal MCP connection path. To let users establish a recoverable GitHub-backed browser account from the hosted home page, create a GitHub OAuth App with the Worker URL as its homepage and `https://<your-worker>/callback` as its callback, then store its credentials:
 
 ```powershell
-npx wrangler secret put GITHUB_CLIENT_ID --env= --config apps/cloudflare/wrangler.jsonc
-npx wrangler secret put GITHUB_CLIENT_SECRET --env= --config apps/cloudflare/wrangler.jsonc
+npx wrangler secret put GITHUB_CLIENT_ID --config wrangler.jsonc
+npx wrangler secret put GITHUB_CLIENT_SECRET --config wrangler.jsonc
 ```
 
 The GitHub access token is discarded immediately after the public-profile lookup. A GitHub error or rate limit never blocks the normal pseudonymous MCP authorization path.
 
 ## Local Worker development
 
-Copy `apps/cloudflare/.dev.vars.example` to `apps/cloudflare/.dev.vars` and set the two encryption secrets. GitHub values are optional; when testing GitHub-backed account management, use a development OAuth App whose callback is `http://localhost:8787/callback` on the default port.
+Copy `.dev.vars.example` to `.dev.vars` and set the two encryption secrets. GitHub values are optional; when testing GitHub-backed account management, use a development OAuth App whose callback is `http://localhost:8787/callback` on the default port.
 
 Then run:
 
@@ -60,12 +66,20 @@ The committed rate-limit namespace IDs must be unique within a Cloudflare accoun
 
 The Ogle IT Services production deployment is available at:
 
-- Base URL: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev`
-- MCP endpoint: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev/mcp`
-- GitHub callback: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev/callback`
-- Account page: `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev/account`
+- Base URL: `https://research.chrisogle.com`
+- MCP endpoint: `https://research.chrisogle.com/mcp`
+- GitHub callback: `https://research.chrisogle.com/callback`
+- Account page: `https://research.chrisogle.com/account`
 
-It uses production-only OAuth credentials, KV namespaces, encryption secrets, rate-limit counters, and the `oit_medical_research_usage` Analytics Engine dataset. The staging environment remains isolated from all of these resources.
+The legacy base URL `https://oit-medical-research-mcp.oit-medical-research-mcp.workers.dev` remains enabled so existing MCP connections continue to work. New connections should use the custom domain.
+
+It uses production-only OAuth credentials, KV namespaces, encryption secrets, rate-limit counters, and the `oit_medical_research_usage` Analytics Engine dataset. The production configuration is `apps/cloudflare/wrangler.production.jsonc`; the root configuration remains portable for independent installers. The staging environment remains isolated from all production resources.
+
+Deploy the hosted production service with:
+
+```powershell
+npm run deploy:cloudflare:production
+```
 
 ## OIT staging environment
 
@@ -86,8 +100,8 @@ https://oit-medical-research-mcp-staging.oit-medical-research-mcp.workers.dev/ca
 Store the two required encryption secrets with `--env staging`, then deploy. The GitHub values are optional:
 
 ```powershell
-npx wrangler secret put COOKIE_ENCRYPTION_KEY --env staging --config apps/cloudflare/wrangler.jsonc
-npx wrangler secret put USER_DATA_ENCRYPTION_KEY --env staging --config apps/cloudflare/wrangler.jsonc
+npx wrangler secret put COOKIE_ENCRYPTION_KEY --env staging --config apps/cloudflare/wrangler.production.jsonc
+npx wrangler secret put USER_DATA_ENCRYPTION_KEY --env staging --config apps/cloudflare/wrangler.production.jsonc
 npm run deploy:cloudflare:staging
 ```
 
@@ -108,7 +122,21 @@ If an OAuth access token is available, set `MCP_OAUTH_ACCESS_TOKEN` to extend th
 
 ## Custom domains
 
-Set comma-separated `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` variables to the exact permitted hostnames. The OAuth resource and issuer are derived from the hostname used by the MCP client, so use one canonical hostname consistently. Register its `/callback` URL only when optional GitHub account management is enabled.
+An independent operator can add a Cloudflare Custom Domain to the root `wrangler.jsonc`:
+
+```jsonc
+"workers_dev": true,
+"routes": [
+  {
+    "pattern": "research.example.com",
+    "custom_domain": true
+  }
+]
+```
+
+Set comma-separated `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` variables to the exact permitted custom and Workers hostnames. Keeping `workers_dev` true preserves the original Workers URL. Cloudflare creates the DNS record and TLS certificate when the configuration is deployed; the hostname must not already have a conflicting CNAME record.
+
+The OAuth resource and issuer are derived from the hostname used by the MCP client, so use the custom hostname consistently for new connections. Register its `/callback` URL only when optional GitHub account management is enabled.
 
 ## Operator responsibilities
 

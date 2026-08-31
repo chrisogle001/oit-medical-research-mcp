@@ -1,11 +1,26 @@
 {
   "name": "oit-medical-research-mcp",
-  "version": "0.6.15",
-  "private": true,
+  "version": "0.7.0",
   "description": "Portable medical literature research MCP server for local and Cloudflare deployments.",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": "Ogle IT Services <research-api@ogleits.com>",
+  "homepage": "https://research.chrisogle.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrisogle001/oit-medical-research-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chrisogle001/oit-medical-research-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "medical-research",
+    "pubmed",
+    "europe-pmc",
+    "cloudflare-workers"
+  ],
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -15,11 +30,16 @@
   },
   "files": [
     "dist/oit-medical-research-mcp.js",
+    "CHANGELOG.md",
+    "LICENSE",
     "README.md",
     "docs"
   ],
   "scripts": {
     "build": "npm run typecheck && esbuild ./apps/local/src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/oit-medical-research-mcp.js",
+    "prepack": "npm run build",
+    "package:check": "npm pack --dry-run",
+    "release:verify-tag": "tsx scripts/verify-release-tag.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -31,12 +51,15 @@
     "smoke:oauth-concurrency": "tsx scripts/smoke-oauth-concurrency.ts",
     "smoke:protocol": "npm run build && tsx scripts/smoke-protocol.ts",
     "start:local": "tsx apps/local/src/index.ts",
-    "dev:cloudflare": "wrangler dev --config apps/cloudflare/wrangler.jsonc",
-    "dev:cloudflare:staging": "wrangler dev --env staging --config apps/cloudflare/wrangler.jsonc",
-    "deploy:cloudflare": "wrangler deploy --env= --config apps/cloudflare/wrangler.jsonc",
-    "deploy:cloudflare:staging": "wrangler deploy --env staging --config apps/cloudflare/wrangler.jsonc",
-    "check:cloudflare": "wrangler deploy --dry-run --env= --config apps/cloudflare/wrangler.jsonc",
-    "check:cloudflare:staging": "wrangler deploy --dry-run --env staging --config apps/cloudflare/wrangler.jsonc",
+    "dev:cloudflare": "wrangler dev --config wrangler.jsonc",
+    "dev:cloudflare:staging": "wrangler dev --env staging --config apps/cloudflare/wrangler.production.jsonc",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "deploy:cloudflare": "npm run deploy",
+    "deploy:cloudflare:production": "wrangler deploy --env= --config apps/cloudflare/wrangler.production.jsonc",
+    "deploy:cloudflare:staging": "wrangler deploy --env staging --config apps/cloudflare/wrangler.production.jsonc",
+    "check:cloudflare": "wrangler deploy --dry-run --config wrangler.jsonc",
+    "check:cloudflare:production": "wrangler deploy --dry-run --env= --config apps/cloudflare/wrangler.production.jsonc",
+    "check:cloudflare:staging": "wrangler deploy --dry-run --env staging --config apps/cloudflare/wrangler.production.jsonc",
     "cf-typegen": "tsx scripts/cloudflare-typegen.ts",
     "cf-typegen:check": "tsx scripts/cloudflare-typegen.ts --check"
   },
@@ -58,5 +81,18 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "cloudflare": {
+    "bindings": {
+      "COOKIE_ENCRYPTION_KEY": {
+        "description": "Generate a random value of at least 32 characters for signed browser sessions."
+      },
+      "USER_DATA_ENCRYPTION_KEY": {
+        "description": "Generate a different random value of at least 32 characters for encrypted personal provider settings."
+      }
+    }
   }
 }

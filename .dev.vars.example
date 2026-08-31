@@ -1,0 +1,3 @@
+# Cloudflare Deploy will prompt for these values. Never commit real secrets.
+COOKIE_ENCRYPTION_KEY=replace-with-at-least-32-random-characters
+USER_DATA_ENCRYPTION_KEY=replace-with-a-different-32-character-random-secret

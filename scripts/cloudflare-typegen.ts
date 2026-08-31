@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 const projectRoot = resolve(import.meta.dirname, "..");
-const developmentVars = resolve(projectRoot, "apps/cloudflare/.dev.vars");
-const exampleVars = resolve(projectRoot, "apps/cloudflare/.dev.vars.example");
+const developmentVars = resolve(projectRoot, ".dev.vars");
+const exampleVars = resolve(projectRoot, "scripts/cloudflare-typegen.env.example");
 const createdTemporaryVars = !existsSync(developmentVars);
 
 if (createdTemporaryVars) copyFileSync(exampleVars, developmentVars);
@@ -18,7 +18,7 @@ try {
     "--include-runtime",
     "false",
     "--config",
-    "apps/cloudflare/wrangler.jsonc",
+    "wrangler.jsonc",
     "apps/cloudflare/worker-configuration.d.ts"
   ];
   const result = spawnSync(process.execPath, argumentsList, {
