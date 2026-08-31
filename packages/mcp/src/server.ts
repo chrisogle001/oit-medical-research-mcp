@@ -1,8 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import {
   ResearchService,
+  type CitationResponse,
   type ResearchServiceOptions,
-  type SearchResponse
+  type SearchResponse,
+  type SearchResult
 } from "@oit-medical-research/core";
 import { z } from "zod";
 
@@ -242,7 +244,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.11"
+    version: "0.6.12"
   });
 
   server.registerTool(
@@ -288,7 +290,8 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
         openWorldHint: true
       }
     },
-    async ({ id, direction, limit }) => toolResult(() => service.citations(id, direction, limit))
+    async ({ id, direction, limit }) =>
+      toolResult(() => service.citations(id, direction, limit), formatCitationsForModel)
   );
 
   server.registerTool(
@@ -387,6 +390,53 @@ function formatSearchForModel(response: SearchResponse): string {
     })),
     providerDiagnostics: response.providerDiagnostics
   });
+}
+
+function formatCitationsForModel(response: CitationResponse): string {
+  return [
+    "citationResponse",
+    `direction=${response.direction}`,
+    `total=${response.total}`,
+    `returned=${response.results.length}`,
+    `providerDiagnostics=${JSON.stringify(response.providerDiagnostics)}`,
+    formatCitationRecordForModel("article", response.article),
+    ...response.results.map((result, index) =>
+      formatCitationRecordForModel(`citation ${index + 1}`, result)
+    )
+  ].join("\n");
+}
+
+function formatCitationRecordForModel(label: string, record: SearchResult): string {
+  const lines = [
+    `[${label}]`,
+    `id=${compactModelText(record.id)}`,
+    `title=${compactModelText(record.title)}`,
+    `url=${compactModelText(record.url)}`,
+    `identifiers=${JSON.stringify(record.identifiers)}`,
+    `providers=${formatModelList(record.providers)}`,
+    `fullTextAvailable=${record.fullTextAvailable}`,
+    `fullTextStatus=${record.fullTextStatus}`,
+    `isPreprint=${record.isPreprint}`,
+    `isRetracted=${record.isRetracted}`
+  ];
+  if (record.authors?.length) lines.push(`authors=${formatModelList(record.authors)}`);
+  if (record.publicationTypes?.length) {
+    lines.push(`publicationTypes=${formatModelList(record.publicationTypes)}`);
+  }
+  if (record.journal !== undefined) lines.push(`journal=${compactModelText(record.journal)}`);
+  if (record.publicationDate !== undefined) {
+    lines.push(`publicationDate=${compactModelText(record.publicationDate)}`);
+  }
+  if (record.citationCount !== undefined) lines.push(`citationCount=${record.citationCount}`);
+  return lines.join("\n");
+}
+
+function formatModelList(values: readonly string[] | undefined): string {
+  return values?.map(compactModelText).join("; ") ?? "";
+}
+
+function compactModelText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

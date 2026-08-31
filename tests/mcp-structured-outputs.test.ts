@@ -121,12 +121,25 @@ describe("MCP structured tool outputs", () => {
         name: "citations",
         arguments: { id: "pmcid:PMC1234567", direction: "citedBy", limit: 1 }
       });
-      expectCompatibleStructuredResult(citations);
+      expectStructuredResult(citations);
       expect(citations.structuredContent).toMatchObject({
         direction: "citedBy",
         total: 1,
         providerDiagnostics: { contributed: ["europe-pmc"] }
       });
+      const citationsText = getTextContent(citations);
+      expect(citationsText).toContain("direction=citedBy");
+      expect(citationsText).toContain("total=1");
+      expect(citationsText).toContain("returned=1");
+      expect(citationsText).toContain(
+        'providerDiagnostics={"attempted":["europe-pmc"],"contributed":["europe-pmc"]'
+      );
+      expect(citationsText).toContain("[article]");
+      expect(citationsText).toContain("id=pmcid:PMC1234567");
+      expect(citationsText).toContain("publicationDate=2025-06-20");
+      expect(citationsText).toContain("fullTextStatus=repository-indexed");
+      expect(citationsText).toContain("[citation 1]");
+      expect(citationsText).toContain("id=pmid:87654321");
 
       const annotations = await client.callTool({
         name: "annotations",
