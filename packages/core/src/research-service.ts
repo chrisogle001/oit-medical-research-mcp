@@ -1,4 +1,5 @@
 import { canonicalId, canonicalUrl, parseIdentifier } from "./identifiers.js";
+import { UpstreamError } from "./http.js";
 import { deduplicateRecords, mergeRecords } from "./records.js";
 import { CrossrefProvider } from "./providers/crossref.js";
 import { EuropePmcProvider } from "./providers/europe-pmc.js";
@@ -15,6 +16,7 @@ import type {
   FullTextStatus,
   ProviderContext,
   ProviderDiagnostics,
+  ProviderFailure,
   ProviderName,
   ResearchProvider,
   ResearchRecord,
@@ -501,6 +503,7 @@ function buildProviderDiagnostics<T>(
   const failed = uniqueProviderNames(
     attempts.flatMap((attempt) => (attempt.result.status === "rejected" ? [attempt.provider] : []))
   );
+  const failures = attempts.flatMap((attempt) => providerFailure(attempt));
   const noRecord = attempted.filter(
     (provider) => !contributed.includes(provider) && !failed.includes(provider)
   );
@@ -509,8 +512,33 @@ function buildProviderDiagnostics<T>(
     contributed,
     noRecord,
     failed,
+    failures,
     partialFailure: failed.length > 0
   };
+}
+
+function providerFailure<T>(attempt: ProviderAttempt<T>): ProviderFailure[] {
+  if (attempt.result.status !== "rejected") return [];
+  const error = attempt.result.reason;
+  if (error instanceof UpstreamError) {
+    return [
+      {
+        provider: attempt.provider,
+        reason: error.reason,
+        ...(error.status !== undefined ? { status: error.status } : {})
+      }
+    ];
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return [{ provider: attempt.provider, reason: "timeout" }];
+  }
+  if (error instanceof SyntaxError) {
+    return [{ provider: attempt.provider, reason: "invalid-response" }];
+  }
+  if (error instanceof TypeError) {
+    return [{ provider: attempt.provider, reason: "network-error" }];
+  }
+  return [{ provider: attempt.provider, reason: "unknown" }];
 }
 
 function uniqueProviderNames(values: ProviderName[]): ProviderName[] {

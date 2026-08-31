@@ -1,4 +1,4 @@
-import { fetchJson, fetchText } from "../http.js";
+import { fetchJson, fetchText, type UpstreamFailureReason } from "../http.js";
 import { attributeTagValue, firstTag, tagBlock, tagBlocks, xmlToText } from "../xml.js";
 import {
   hasPublicationType,
@@ -15,6 +15,7 @@ import type {
 } from "../types.js";
 
 interface PubMedSearchPayload {
+  error?: string;
   esearchresult?: { idlist?: string[] };
 }
 
@@ -29,8 +30,14 @@ interface PubMedSummaryItem {
 }
 
 interface PubMedSummaryPayload {
+  error?: string;
   result?: Record<string, PubMedSummaryItem | string[]> & { uids?: string[] };
 }
+
+const PUBMED_REQUEST_OPTIONS = {
+  maxAttempts: 3,
+  retryBaseDelayMs: 750
+} as const;
 
 export class PubMedProvider implements ResearchProvider {
   readonly name = "pubmed" as const;
@@ -51,7 +58,7 @@ export class PubMedProvider implements ResearchProvider {
       searchParams.maxdate = String(filters.toYear ?? 2100);
     }
     const searchUrl = this.url("esearch.fcgi", searchParams);
-    const search = await fetchJson<PubMedSearchPayload>(this.context.fetch, this.name, searchUrl);
+    const search = await this.fetchJson<PubMedSearchPayload>(searchUrl);
     const ids = search.esearchresult?.idlist ?? [];
     if (ids.length === 0) return [];
 
@@ -60,7 +67,7 @@ export class PubMedProvider implements ResearchProvider {
       retmode: "json",
       id: ids.join(",")
     });
-    const payload = await fetchJson<PubMedSummaryPayload>(this.context.fetch, this.name, summaryUrl);
+    const payload = await this.fetchJson<PubMedSummaryPayload>(summaryUrl);
     const result = payload.result ?? {};
     const orderedIds = result.uids ?? ids;
 
@@ -110,7 +117,7 @@ export class PubMedProvider implements ResearchProvider {
       rettype: "abstract",
       retmode: "xml"
     });
-    const xml = await fetchText(this.context.fetch, this.name, url);
+    const xml = await fetchText(this.context.fetch, this.name, url, PUBMED_REQUEST_OPTIONS);
     const article = tagBlock(xml, "PubmedArticle");
     if (!article) return null;
 
@@ -161,7 +168,7 @@ export class PubMedProvider implements ResearchProvider {
       rettype: "full",
       retmode: "xml"
     });
-    const xml = await fetchText(this.context.fetch, this.name, url);
+    const xml = await fetchText(this.context.fetch, this.name, url, PUBMED_REQUEST_OPTIONS);
     const article = tagBlock(xml, "article") ?? xml;
     const body = tagBlock(article, "body");
     if (!body) return null;
@@ -214,6 +221,20 @@ export class PubMedProvider implements ResearchProvider {
     if (this.context.ncbiApiKey) url.searchParams.set("api_key", this.context.ncbiApiKey);
     return url;
   }
+
+  private fetchJson<T extends { error?: string }>(url: URL): Promise<T> {
+    return fetchJson<T>(this.context.fetch, this.name, url, {
+      ...PUBMED_REQUEST_OPTIONS,
+      retryOnResult: pubMedPayloadFailure
+    });
+  }
+}
+
+function pubMedPayloadFailure(payload: { error?: string }): UpstreamFailureReason | undefined {
+  if (!payload.error) return undefined;
+  return /rate\s*limit|too many requests/i.test(payload.error)
+    ? "rate-limited"
+    : "upstream-error";
 }
 
 function pubMedSearchQuery(query: string, filters: SearchFilters): string {

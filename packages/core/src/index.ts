@@ -1,4 +1,5 @@
 export { ResearchService } from "./research-service.js";
+export { UpstreamError } from "./http.js";
 export { canonicalId, canonicalUrl, normalizeDoi, parseIdentifier } from "./identifiers.js";
 export { deduplicateRecords, mergeRecords, reconcileAuthors } from "./records.js";
 export { decodeXml, firstTag, normalizeWhitespace, xmlToText } from "./xml.js";
@@ -20,6 +21,8 @@ export type {
   FullTextStatus,
   ProviderContext,
   ProviderDiagnostics,
+  ProviderFailure,
+  ProviderFailureReason,
   ProviderName,
   ResearchProvider,
   ResearchAnnotation,

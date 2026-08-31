@@ -5,6 +5,20 @@ export type FetchLike = (
 
 export type ProviderName = "pubmed" | "europe-pmc" | "crossref" | "unpaywall";
 
+export type ProviderFailureReason =
+  | "rate-limited"
+  | "timeout"
+  | "network-error"
+  | "invalid-response"
+  | "upstream-error"
+  | "unknown";
+
+export interface ProviderFailure {
+  provider: ProviderName;
+  reason: ProviderFailureReason;
+  status?: number;
+}
+
 export type FullTextStatus =
   | "retrieved"
   | "repository-indexed"
@@ -16,6 +30,7 @@ export interface ProviderDiagnostics {
   contributed: ProviderName[];
   noRecord: ProviderName[];
   failed: ProviderName[];
+  failures: ProviderFailure[];
   partialFailure: boolean;
 }
 

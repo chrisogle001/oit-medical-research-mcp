@@ -1,8 +1,9 @@
 import { ResearchService } from "@oit-medical-research/core";
 
-const service = new ResearchService({ maxResults: 3 });
-const search = await service.search("randomized controlled trial exercise knee osteoarthritis", 3, {
-  fromYear: 2020,
+const service = new ResearchService({ maxResults: 5 });
+const search = await service.search("knee osteoarthritis exercise randomized controlled trial", 5, {
+  fromYear: 2022,
+  toYear: 2025,
   journals: ["Trials"],
   fullTextOnly: true
 });
@@ -14,7 +15,8 @@ if (
   !search.results.every(
     (result) =>
       result.journal?.toLowerCase() === "trials" &&
-      Number(result.publicationDate?.slice(0, 4)) >= 2020 &&
+      Number(result.publicationDate?.slice(0, 4)) >= 2022 &&
+      Number(result.publicationDate?.slice(0, 4)) <= 2025 &&
       result.fullTextAvailable &&
       result.fullTextStatus !== "not-indicated" &&
       typeof result.isPreprint === "boolean" &&

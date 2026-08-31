@@ -38,7 +38,7 @@ Application logs and usage events exclude query text, article identifiers, artic
 
 ### Resource exhaustion and upstream quota abuse
 
-Research calls are limited to 30 per account per minute at the Cloudflare edge. MCP request inspection is bounded to 64 KiB, tool input lengths are bounded, result counts and returned text are capped, provider HTTP calls have timeouts and bounded reads, and no more than three provider operations run concurrently. Fetch follow-ups visit each discovered DOI or PMCID at most once. Provider failures are isolated so a single unavailable source does not collapse the whole request; public diagnostics contain only provider names and coarse outcomes, never raw exceptions.
+Research calls are limited to 30 per account per minute at the Cloudflare edge. MCP request inspection is bounded to 64 KiB, tool input lengths are bounded, result counts and returned text are capped, provider HTTP calls have timeouts, bounded reads, and bounded retry backoff, and no more than three provider operations run concurrently. Fetch follow-ups visit each discovered DOI or PMCID at most once. Provider failures are isolated so a single unavailable source does not collapse the whole request; public diagnostics contain only provider names, coarse failure reasons, and safe HTTP status codes, never raw exceptions.
 
 ### Dynamic registration and public-route abuse
 

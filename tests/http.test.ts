@@ -26,6 +26,45 @@ describe("provider HTTP requests", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("retries a provider error embedded in a successful JSON response", async () => {
+    const fetcher = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(Response.json({ error: "API rate limit exceeded" }))
+      .mockResolvedValueOnce(Response.json({ esearchresult: { idlist: ["123"] } }));
+
+    await expect(
+      fetchJson<{ error?: string; esearchresult?: { idlist: string[] } }>(
+        fetcher,
+        "pubmed",
+        new URL("https://example.test"),
+        {
+          maxAttempts: 3,
+          retryBaseDelayMs: 0,
+          retryOnResult: (value) => (value.error ? "rate-limited" : undefined)
+        }
+      )
+    ).resolves.toEqual({ esearchresult: { idlist: ["123"] } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns a safe classified error after retry exhaustion", async () => {
+    const fetcher = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(new Response("slow down", { status: 429 }));
+
+    await expect(
+      fetchText(fetcher, "pubmed", new URL("https://example.test"), {
+        maxAttempts: 2,
+        retryBaseDelayMs: 0
+      })
+    ).rejects.toMatchObject({
+      provider: "pubmed",
+      status: 429,
+      reason: "rate-limited"
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry a permanent client response", async () => {
     const fetcher = vi.fn<FetchLike>().mockResolvedValue(new Response("not found", { status: 404 }));
 

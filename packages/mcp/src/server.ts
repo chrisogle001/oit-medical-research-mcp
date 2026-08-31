@@ -87,6 +87,20 @@ const ProviderDiagnosticsOutput = z.object({
   contributed: z.array(ProviderNameOutput),
   noRecord: z.array(ProviderNameOutput),
   failed: z.array(ProviderNameOutput),
+  failures: z.array(
+    z.object({
+      provider: ProviderNameOutput,
+      reason: z.enum([
+        "rate-limited",
+        "timeout",
+        "network-error",
+        "invalid-response",
+        "upstream-error",
+        "unknown"
+      ]),
+      status: z.number().int().min(100).max(599).optional()
+    })
+  ),
   partialFailure: z.boolean()
 });
 const SearchResultOutput = z.object({
@@ -226,7 +240,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.8"
+    version: "0.6.9"
   });
 
   server.registerTool(

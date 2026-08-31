@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ResearchService, type ResearchProvider } from "@oit-medical-research/core";
+import { ResearchService, UpstreamError, type ResearchProvider } from "@oit-medical-research/core";
 
 const pubmed: ResearchProvider = {
   name: "pubmed",
@@ -70,6 +70,7 @@ describe("ResearchService", () => {
         contributed: ["europe-pmc", "pubmed"],
         noRecord: [],
         failed: [],
+        failures: [],
         partialFailure: false
       }
     });
@@ -561,7 +562,13 @@ describe("ResearchService", () => {
     const unavailable: ResearchProvider = {
       name: "crossref",
       async search() {
-        throw new Error("sensitive upstream diagnostic");
+        throw new UpstreamError(
+          "crossref",
+          "sensitive upstream diagnostic",
+          429,
+          "rate-limited",
+          true
+        );
       },
       async fetch() {
         return null;
@@ -576,6 +583,7 @@ describe("ResearchService", () => {
       contributed: ["pubmed"],
       noRecord: [],
       failed: ["crossref"],
+      failures: [{ provider: "crossref", reason: "rate-limited", status: 429 }],
       partialFailure: true
     });
     expect(JSON.stringify(result)).not.toContain("sensitive upstream diagnostic");

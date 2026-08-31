@@ -9,7 +9,7 @@
 - Account sessions are short-lived and HMAC-signed. A valid session completes later MCP consent requests under the same identity. Users can list and revoke their MCP client grants from `/account` while that signed session remains valid.
 - Protected MCP requests require the `mcp:research` scope. Research tool calls are limited to 30 per account per minute and oversized MCP request bodies are rejected before protocol parsing.
 - Provider fan-out is capped at three concurrent provider operations per research request.
-- Provider diagnostics expose only configured provider names and coarse outcomes. Raw upstream response bodies, URLs containing credentials, and exception messages are not returned to MCP clients.
+- Provider diagnostics expose only configured provider names, coarse outcomes and failure reasons, and safe HTTP status codes. Raw upstream response bodies, URLs containing credentials, and exception messages are not returned to MCP clients.
 - `/health` and `/` reveal only service status and connection instructions.
 - Browser Origin and Host validation is delegated to the current Cloudflare Agents MCP handler. Custom domains require explicit allowlists.
 
