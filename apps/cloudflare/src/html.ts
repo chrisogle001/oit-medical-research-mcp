@@ -36,7 +36,7 @@ export function renderHome(origin: string, notice?: string): Response {
           <p class="lead">Search PubMed, PubMed Central, Europe PMC, Crossref, and lawful open-access sources through one read-only MCP server.</p>
           <div class="actions">
             <a class="button primary" href="/login">Manage hosted account</a>
-            <a class="button secondary" href="${escapeHtml(`${origin}/mcp`)}">MCP endpoint</a>
+            <a class="button secondary" href="/connect">Connection instructions</a>
           </div>
         </section>
         <section class="grid">
@@ -45,6 +45,37 @@ export function renderHome(origin: string, notice?: string): Response {
           <article class="card"><h2>Evidence first</h2><p>Results retain identifiers, provenance, licensing, and source links. The server does not bypass paywalls.</p></article>
         </section>
         <footer><span>Endpoint: <code>${escapeHtml(`${origin}/mcp`)}</code></span><span>This service supports research; it does not provide medical advice.</span></footer>
+      </main>`
+    )
+  );
+}
+
+export function renderConnect(origin: string): Response {
+  const endpoint = `${origin}/mcp`;
+  return htmlResponse(
+    page(
+      "Connect Medical Research MCP",
+      `<main class="narrow">
+        <section class="card consent">
+          <span class="eyebrow">MCP connection</span>
+          <h1>Connect your AI workspace</h1>
+          <p class="lead">Use this protected server address in your AI client's custom connector or MCP settings.</p>
+          <div class="endpoint-box">
+            <strong>Server URL</strong>
+            <code>${escapeHtml(endpoint)}</code>
+          </div>
+          <ol class="steps">
+            <li>Open your AI client's custom connector or MCP settings.</li>
+            <li>Enter <strong>OIT Medical Research MCP</strong> as the name.</li>
+            <li>Paste the server URL shown above and start the connection.</li>
+            <li>Approve the authorization request when prompted.</li>
+          </ol>
+          <div class="permission muted">
+            <strong>Why this is not a normal webpage</strong>
+            <p>The <code>/mcp</code> address is a protected machine-to-machine endpoint. MCP clients use its HTTP 401 response to discover and begin OAuth securely.</p>
+          </div>
+          <div class="actions"><a class="button primary" href="/">Return home</a></div>
+        </section>
       </main>`
     )
   );
@@ -279,6 +310,7 @@ const styles = `
   .actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.actions.right{justify-content:flex-end}.button{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:.72rem 1.15rem;border-radius:999px;border:1px solid transparent;text-decoration:none;font:inherit;font-weight:700;cursor:pointer}.primary{background:var(--green);color:#fff}.primary:hover{background:var(--green-dark)}.secondary{background:#fff;border-color:var(--line);color:var(--ink)}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1rem}.grid .card{padding:1.5rem}.grid h2,.settings h2{font-size:1.12rem;margin:.45rem 0}.grid p{color:var(--muted);margin:.3rem 0}footer{display:flex;justify-content:space-between;gap:1rem;color:var(--muted);font-size:.86rem;padding:1.5rem .2rem}
   .consent{padding:clamp(1.5rem,5vw,3rem)}.consent h1{font-size:clamp(2rem,6vw,3.2rem)}.permission{border:1px solid var(--line);border-radius:14px;padding:1rem 1.2rem;margin-top:1rem}.permission ul{margin:.55rem 0 0;padding-left:1.25rem}.permission.muted{background:#fafbf9;color:var(--muted)}.fine{font-size:.78rem;color:var(--muted);overflow-wrap:anywhere}
+  .endpoint-box{display:grid;gap:.45rem;margin-top:1.5rem;padding:1rem 1.2rem;border:1px solid #b9dec9;border-radius:14px;background:var(--mint)}.endpoint-box code{font-size:1rem;color:var(--green-dark);user-select:all}.steps{display:grid;gap:.65rem;margin:1.5rem 0;padding-left:1.4rem}.permission p{margin:.55rem 0 0}
   .account-shell{padding-top:1.5rem}.account-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem}.brand{font-weight:800;text-decoration:none}.text-button{border:0;background:transparent;color:var(--green);font:inherit;font-weight:750;cursor:pointer;padding:.4rem}.profile{display:flex;align-items:center;gap:1.25rem;padding:2rem}.profile img,.avatar-fallback{border-radius:50%;background:var(--mint)}.avatar-fallback{width:64px;height:64px;display:grid;place-items:center;font-size:1.5rem;font-weight:800}.profile h1{font-size:2.25rem;margin:.35rem 0 .1rem}.profile p{margin:0;color:var(--muted)}.settings{padding:2rem;margin-top:1rem}.section-heading{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:1rem}.count{display:grid;place-items:center;border-radius:999px;background:var(--mint);color:var(--green);width:2rem;height:2rem;font-weight:800}.grant{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.1rem 0;border-bottom:1px solid var(--line)}.grant:last-child{border-bottom:0}.grant h3,.grant p{margin:.15rem 0}.grant p{color:var(--muted);font-size:.9rem}.empty{padding:2.5rem 0;text-align:center;color:var(--muted)}.empty h3{color:var(--ink)}.status{display:inline-block;border-radius:999px;padding:.2rem .55rem;font-size:.72rem;font-weight:800}.status.ready{background:var(--mint);color:var(--green)}.status.neutral{background:#edf0ec;color:var(--muted)}.notice{background:var(--mint);border:1px solid #b9dec9;color:var(--green-dark);padding:.8rem 1rem;border-radius:12px;margin-bottom:1rem}.settings-copy{color:var(--muted);max-width:70ch}.provider-form{display:grid;gap:.6rem;margin-top:1.25rem;max-width:720px}.provider-form label{font-weight:700}.provider-form input[type="password"],.provider-form input[type="text"]{width:100%;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font:inherit;padding:.8rem .9rem}.actions.compact{margin-top:.4rem}.danger-zone{padding:2rem;margin-top:1rem;border-color:#e7c9c5}.danger-zone h2{margin:.45rem 0}.danger-zone p{color:var(--muted);max-width:75ch}.button.danger{background:#9b2c24;color:#fff}.button.danger:hover{background:#7d211b}
   @media(max-width:760px){.shell{padding-top:2rem}.narrow{padding-top:2rem}.grid{grid-template-columns:1fr}footer{flex-direction:column}.hero{padding:2rem}.actions.right{justify-content:stretch}.actions.right .button{flex:1}.profile{align-items:flex-start}.grant{align-items:flex-start}.account-header{margin-bottom:1rem}}
 `;

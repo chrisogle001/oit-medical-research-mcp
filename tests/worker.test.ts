@@ -69,6 +69,32 @@ describe("Cloudflare Worker boundary", () => {
     const body = await response.text();
     expect(response.status).toBe(200);
     expect(body).toContain("Manage hosted account");
+    expect(body).toContain("Connection instructions");
+    expect(body).toContain('href="/connect"');
+    expect(body).toContain("https://example.workers.dev/mcp");
+  });
+
+  it("provides browser-friendly MCP connection instructions", async () => {
+    const response = await fetchWorker(new Request("https://example.workers.dev/connect"));
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(body).toContain("Connect your AI workspace");
+    expect(body).toContain("https://example.workers.dev/mcp");
+    expect(body).toContain("not a normal webpage");
+  });
+
+  it("shows connection instructions for a direct browser navigation to the MCP endpoint", async () => {
+    const response = await fetchWorker(
+      new Request("https://example.workers.dev/mcp", {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "Sec-Fetch-Mode": "navigate"
+        }
+      })
+    );
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(body).toContain("Connect your AI workspace");
     expect(body).toContain("https://example.workers.dev/mcp");
   });
 

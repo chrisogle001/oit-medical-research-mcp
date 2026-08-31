@@ -9,6 +9,7 @@ import {
 } from "./mcp-guard.js";
 import { parseAuthenticatedUser } from "./security.js";
 import { accountPseudonym, readUserProviderSettings } from "./user-data.js";
+import { renderConnect } from "./html.js";
 
 const RESEARCH_SCOPE = "mcp:research";
 
@@ -127,6 +128,13 @@ const worker = {
     if (allowedHostnames && !allowedHostnames.includes(url.hostname)) {
       return Response.json({ error: "Unrecognized host." }, { status: 421 });
     }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/mcp" &&
+      isBrowserNavigation(request)
+    ) {
+      return renderConnect(url.origin);
+    }
     const tokenAttempt = url.pathname === "/oauth/token"
       ? await describeOAuthTokenRequest(request)
       : undefined;
@@ -196,6 +204,13 @@ const worker = {
 } satisfies ExportedHandler<Env>;
 
 export default worker;
+
+function isBrowserNavigation(request: Request): boolean {
+  return (
+    request.headers.get("Sec-Fetch-Mode") === "navigate" &&
+    (request.headers.get("Accept") || "").includes("text/html")
+  );
+}
 
 function list(value?: string): string[] | undefined {
   const values = value

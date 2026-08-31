@@ -7,6 +7,7 @@ import {
 import {
   renderAccount,
   renderAuthorizationRedirect,
+  renderConnect,
   renderConsent,
   renderError,
   renderGitHubContinue,
@@ -67,6 +68,9 @@ export const authHandler = {
     if (request.method === "GET" && url.pathname === "/") {
       const notice = url.searchParams.get("notice") || undefined;
       return renderHome(url.origin, notice);
+    }
+    if (request.method === "GET" && url.pathname === "/connect") {
+      return renderConnect(url.origin);
     }
     if (request.method === "GET" && url.pathname === "/authorize") {
       return beginClientAuthorization(request, oauthEnv);

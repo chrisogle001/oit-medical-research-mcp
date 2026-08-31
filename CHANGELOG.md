@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 - 2026-08-30
+
+- Replaced the homepage's direct MCP transport link with clear connection instructions.
+- Added a browser-friendly explanation for direct navigation to the protected `/mcp` endpoint while preserving OAuth discovery for MCP clients.
+
 ## 0.7.0 - 2026-08-30
 
 - License the project under the MIT License.
