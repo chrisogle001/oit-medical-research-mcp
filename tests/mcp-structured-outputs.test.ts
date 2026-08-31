@@ -153,24 +153,35 @@ describe("MCP structured tool outputs", () => {
         providerDiagnostics: { contributed: ["europe-pmc"] }
       });
       const annotationsText = getTextContent(annotations);
-      expect(annotationsText).toContain("source=europe-pmc");
-      expect(annotationsText).toContain("total=1");
-      expect(annotationsText).toContain("returned=1");
-      expect(annotationsText).toContain(
-        'providerDiagnostics={"attempted":["europe-pmc"],"contributed":["europe-pmc"]'
-      );
-      expect(annotationsText).toContain("[article]");
-      expect(annotationsText).toContain("id=pmcid:PMC1234567");
-      expect(annotationsText).toContain("[annotation 1]");
-      expect(annotationsText).toContain("text=knee osteoarthritis");
-      expect(annotationsText).toContain("type=Diseases");
-      expect(annotationsText).toContain("section=Abstract");
-      expect(annotationsText).toContain(
-        'tags=[{"name":"knee osteoarthritis","uri":"http://example.test/entity/1"}]'
-      );
-      expect(annotationsText).toContain(
-        "Europe PMC annotations are automated or contributed text-mining signals"
-      );
+      expect(JSON.parse(annotationsText)).toMatchObject({
+        responseType: "annotationResponse",
+        articleId: "pmcid:PMC1234567",
+        article: {
+          id: "pmcid:PMC1234567",
+          title: "Structured MCP result fixture"
+        },
+        source: "europe-pmc",
+        total: 1,
+        returned: 1,
+        annotations: [
+          {
+            text: "knee osteoarthritis",
+            type: "Diseases",
+            section: "Abstract",
+            tags: [
+              { name: "knee osteoarthritis", uri: "http://example.test/entity/1" }
+            ]
+          }
+        ],
+        disclaimer: expect.stringContaining(
+          "Europe PMC annotations are automated or contributed text-mining signals"
+        ),
+        providerDiagnostics: {
+          attempted: ["europe-pmc"],
+          contributed: ["europe-pmc"],
+          partialFailure: false
+        }
+      });
     } finally {
       await client.close();
       await server.close();

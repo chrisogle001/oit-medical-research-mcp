@@ -3,7 +3,6 @@ import {
   ResearchService,
   type AnnotationResponse,
   type CitationResponse,
-  type ResearchAnnotation,
   type ResearchServiceOptions,
   type SearchResponse,
   type SearchResult
@@ -246,7 +245,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.13"
+    version: "0.6.14"
   });
 
   server.registerTool(
@@ -411,44 +410,17 @@ function formatCitationsForModel(response: CitationResponse): string {
 }
 
 function formatAnnotationsForModel(response: AnnotationResponse): string {
-  return [
-    "annotationResponse",
-    `source=${response.source}`,
-    `total=${response.total}`,
-    `returned=${response.annotations.length}`,
-    `disclaimer=${compactModelText(response.disclaimer)}`,
-    `providerDiagnostics=${JSON.stringify(response.providerDiagnostics)}`,
-    formatCitationRecordForModel("article", response.article),
-    ...response.annotations.map((annotation, index) =>
-      formatAnnotationForModel(`annotation ${index + 1}`, annotation)
-    )
-  ].join("\n");
-}
-
-function formatAnnotationForModel(label: string, annotation: ResearchAnnotation): string {
-  const lines = [
-    `[${label}]`,
-    `text=${compactModelText(annotation.text)}`,
-    `type=${compactModelText(annotation.type)}`
-  ];
-  if (annotation.section !== undefined) {
-    lines.push(`section=${compactModelText(annotation.section)}`);
-  }
-  if (annotation.sectionUri !== undefined) {
-    lines.push(`sectionUri=${compactModelText(annotation.sectionUri)}`);
-  }
-  if (annotation.provider !== undefined) {
-    lines.push(`provider=${compactModelText(annotation.provider)}`);
-  }
-  if (annotation.prefix !== undefined) {
-    lines.push(`prefix=${compactModelText(annotation.prefix)}`);
-  }
-  if (annotation.postfix !== undefined) {
-    lines.push(`postfix=${compactModelText(annotation.postfix)}`);
-  }
-  lines.push(`tags=${JSON.stringify(annotation.tags)}`);
-  if (annotation.url !== undefined) lines.push(`url=${compactModelText(annotation.url)}`);
-  return lines.join("\n");
+  return JSON.stringify({
+    responseType: "annotationResponse",
+    articleId: response.article.id,
+    article: response.article,
+    source: response.source,
+    total: response.total,
+    returned: response.annotations.length,
+    annotations: response.annotations,
+    disclaimer: response.disclaimer,
+    providerDiagnostics: response.providerDiagnostics
+  });
 }
 
 function formatCitationRecordForModel(label: string, record: SearchResult): string {
