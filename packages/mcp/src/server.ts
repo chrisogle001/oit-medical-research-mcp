@@ -245,7 +245,7 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
   const service = new ResearchService(options);
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.6.14"
+    version: "0.6.15"
   });
 
   server.registerTool(

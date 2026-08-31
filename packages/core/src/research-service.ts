@@ -400,7 +400,6 @@ function fullTextStatus(record: ResearchRecord): FullTextStatus {
   if (record.fullText) return "retrieved";
   if (
     record.identifiers.pmcid ||
-    (record.providers.includes("europe-pmc") && Boolean(record.fullTextUrl || record.pdfUrl)) ||
     isRepositoryUrl(record.fullTextUrl) ||
     isRepositoryUrl(record.pdfUrl)
   ) {

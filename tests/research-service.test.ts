@@ -516,6 +516,50 @@ describe("ResearchService", () => {
     });
   });
 
+  it("does not misclassify an external open-access location as repository-indexed", async () => {
+    const europePmcMetadata: ResearchProvider = {
+      name: "europe-pmc",
+      async search() {
+        return [];
+      },
+      async fetch(identifier) {
+        if (identifier.type !== "doi") return null;
+        return {
+          title: "Externally archived article",
+          abstract: "The abstract remains available through Europe PMC.",
+          identifiers: { doi: identifier.value, pmid: "37952131" },
+          providers: ["europe-pmc"]
+        };
+      }
+    };
+    const unpaywallLocation: ResearchProvider = {
+      name: "unpaywall",
+      async search() {
+        return [];
+      },
+      async fetch(identifier) {
+        if (identifier.type !== "doi") return null;
+        return {
+          title: "Externally archived article",
+          fullTextUrl: "https://institution.example/research/article",
+          isOpenAccess: true,
+          identifiers: { doi: identifier.value },
+          providers: ["unpaywall"]
+        };
+      }
+    };
+    const service = new ResearchService({ providers: [europePmcMetadata, unpaywallLocation] });
+
+    const result = await service.fetch("doi:10.1000/external-archive", { includeText: false });
+
+    expect(result.metadata).toMatchObject({
+      providers: ["europe-pmc", "unpaywall"],
+      textType: "abstract",
+      fullTextStatus: "open-access-location",
+      fullTextUrl: "https://institution.example/research/article"
+    });
+  });
+
   it("labels metadata-only DOI records without claiming full text", async () => {
     const provider: ResearchProvider = {
       name: "crossref",
