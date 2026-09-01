@@ -88,6 +88,8 @@ Ogle IT Services hosts the production deployment at [research.chrisogle.com](htt
 
 Configure a compatible client with `https://<your-worker>/mcp`. Unauthenticated bearer access is rejected; the client discovers OAuth automatically and opens a browser consent flow. Approval creates a cryptographically random pseudonymous account and signed browser session, so no email, password, or GitHub account is required. Concurrent client connection attempts are isolated with short-lived per-request state, and a valid eight-hour browser session is reused.
 
+ChatGPT keeps a frozen snapshot of an app's approved actions. Reconnecting OAuth only renews access; it does not add tools introduced by a later server release. After an update, refresh the app's actions from the workspace app controls when that option is available. On ChatGPT Business, a published app currently must be recreated and republished to adopt new tools. Confirm that all six actions are listed after the scan: `search`, `fetch`, `citations`, `annotations`, `cms_search_datasets`, and `cms_query_dataset`.
+
 For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as comma-separated Worker variables. Browser Origins remain validated by default.
 
 ## Configuration and privacy

@@ -93,7 +93,10 @@ const catalog = await callMcp("tools/list", {});
 const tools = ((catalog.result?.tools ?? []) as Array<{ name?: string }>)
   .flatMap((tool) => (tool.name ? [tool.name] : []))
   .sort();
-if (tools.join(",") !== "annotations,citations,fetch,search") {
+if (
+  tools.join(",") !==
+  "annotations,citations,cms_query_dataset,cms_search_datasets,fetch,search"
+) {
   throw new Error(`Unexpected remote tool catalog: ${tools.join(", ")}`);
 }
 
