@@ -226,3 +226,55 @@ export interface ResearchServiceOptions {
   maxTextCharacters?: number;
   maxProviderConcurrency?: number;
 }
+
+export type CmsFilterOperator = "equals" | "contains";
+
+export interface CmsDatasetFilter {
+  field: string;
+  operator: CmsFilterOperator;
+  value: string;
+}
+
+export interface CmsDatasetSummary {
+  datasetId: string;
+  title: string;
+  description?: string;
+  themes?: string[];
+  keywords?: string[];
+  modified?: string;
+  temporal?: string;
+  landingPage?: string;
+  license?: string;
+  apiUrl: string;
+  resourcesUrl?: string;
+}
+
+export interface CmsDatasetSearchResponse {
+  source: "data.cms.gov";
+  resultCount: number;
+  totalMatches: number;
+  totalCatalogDatasets: number;
+  results: CmsDatasetSummary[];
+}
+
+export type CmsDatasetValue = string | number | boolean | null;
+export type CmsDatasetRow = Record<string, CmsDatasetValue>;
+
+export interface CmsDatasetQueryResponse {
+  source: "data.cms.gov";
+  datasetId: string;
+  apiUrl: string;
+  offset: number;
+  limit: number;
+  returned: number;
+  columns: string[];
+  filters: CmsDatasetFilter[];
+  rows: CmsDatasetRow[];
+  note: string;
+}
+
+export interface CmsDataServiceOptions {
+  fetch?: FetchLike;
+  maxCatalogResponseBytes?: number;
+  maxDatasetResponseBytes?: number;
+}

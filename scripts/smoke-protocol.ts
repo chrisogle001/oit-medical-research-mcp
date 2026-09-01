@@ -21,7 +21,10 @@ try {
   });
   const tools = await client.listTools();
   const names = tools.tools.map((tool) => tool.name).sort();
-  if (names.join(",") !== "annotations,citations,fetch,search") {
+  if (
+    names.join(",") !==
+    "annotations,citations,cms_query_dataset,cms_search_datasets,fetch,search"
+  ) {
     throw new Error(`Unexpected tool catalog: ${names.join(", ")}`);
   }
   const searchTool = tools.tools.find((tool) => tool.name === "search");
@@ -87,6 +90,37 @@ try {
     "annotations",
     "disclaimer",
     "providerDiagnostics"
+  ]);
+  const cmsSearchTool = tools.tools.find((tool) => tool.name === "cms_search_datasets");
+  const cmsSearchProperties = (
+    cmsSearchTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  if (Object.keys(cmsSearchProperties ?? {}).sort().join(",") !== "limit,query") {
+    throw new Error("The CMS dataset search tool did not advertise the expected inputs.");
+  }
+  assertOutputSchema(cmsSearchTool, "cms_search_datasets", [
+    "source",
+    "resultCount",
+    "totalMatches",
+    "totalCatalogDatasets",
+    "results"
+  ]);
+  const cmsQueryTool = tools.tools.find((tool) => tool.name === "cms_query_dataset");
+  const cmsQueryProperties = (
+    cmsQueryTool?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  if (
+    Object.keys(cmsQueryProperties ?? {}).sort().join(",") !==
+    "datasetId,filters,limit,offset"
+  ) {
+    throw new Error("The CMS dataset query tool did not advertise the expected inputs.");
+  }
+  assertOutputSchema(cmsQueryTool, "cms_query_dataset", [
+    "source",
+    "datasetId",
+    "columns",
+    "rows",
+    "note"
   ]);
   console.log(
     JSON.stringify(

@@ -21,16 +21,18 @@ MCP client
                     │
                     ▼
              packages/mcp
-   search(), fetch(), citations(), annotations()
-                    │
-                    ▼
+   literature tools       CMS public-data tools
+          │                       │
+          ▼                       ▼
              packages/core
-       normalize → dedupe → resolve
-          │        │        │
+       normalize → dedupe → resolve     Data.CMS.gov
+          │        │        │          catalog + dataset API
        PubMed   Europe PMC  Crossref + Unpaywall
 ```
 
 `packages/core` contains no Cloudflare-specific APIs. `packages/mcp` owns the stable tool contract. Each transport creates an isolated MCP server instance.
+
+CMS public-use data remains a separate tool family rather than a literature provider. `cms_search_datasets` searches the official Data.CMS.gov catalog and identifies the latest API distribution for each matching dataset. `cms_query_dataset` accepts only a validated CMS dataset UUID, bounded pagination, and a small set of safely encoded column filters. Responses include column names and a warning to consult the source data dictionary; they do not represent patient-specific claims or clinical advice.
 
 ## Identifier and retrieval policy
 

@@ -44,8 +44,8 @@ Then create the GitHub repository variable `NPM_TRUSTED_PUBLISHING_ENABLED` with
 After CI passes on `main`, create and push the matching tag:
 
 ```powershell
-git tag -a v0.7.1 -m "v0.7.1"
-git push origin v0.7.1
+git tag -a v0.8.0 -m "v0.8.0"
+git push origin v0.8.0
 ```
 
 The release workflow verifies that the tag matches `package.json`, reruns all deterministic checks, optionally publishes to npm, builds the installable `.tgz`, and creates a GitHub release containing that archive.

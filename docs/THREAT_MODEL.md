@@ -10,7 +10,7 @@ Assets requiring protection are OAuth grants and tokens, cookie and user-data en
 
 - The browser crosses into the public consent and account UI.
 - An MCP client crosses into the OAuth-protected `/mcp` endpoint.
-- The Worker crosses into GitHub only during optional account identity verification and into PubMed/PMC, Europe PMC, Crossref, and Unpaywall during research.
+- The Worker crosses into GitHub only during optional account identity verification; into PubMed/PMC, Europe PMC, Crossref, and Unpaywall during literature research; and into Data.CMS.gov for public dataset discovery and bounded queries.
 - The Worker crosses into Cloudflare-managed KV, rate limiting, logs, and Analytics Engine through bindings.
 - A repository installer becomes the independent operator of their deployment and secrets.
 

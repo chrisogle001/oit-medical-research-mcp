@@ -33,7 +33,7 @@ export function renderHome(origin: string, notice?: string): Response {
         <section class="hero card">
           <span class="eyebrow">OIT · Research infrastructure</span>
           <h1>Medical literature, connected to your AI workspace.</h1>
-          <p class="lead">Search PubMed, PubMed Central, Europe PMC, Crossref, and lawful open-access sources through one read-only MCP server.</p>
+          <p class="lead">Search medical literature and query public Medicare and Medicaid datasets through one read-only MCP server.</p>
           <div class="actions">
             <a class="button primary" href="/login">Manage hosted account</a>
             <a class="button secondary" href="/connect">Connection instructions</a>
@@ -85,7 +85,7 @@ export function renderConsent(options: ConsentPageOptions): Response {
   const clientName = options.client.clientName || "An MCP client";
   const scopes = options.oauthRequest.scope.length
     ? options.oauthRequest.scope.map((scope) => `<li>${escapeHtml(scopeLabel(scope))}</li>`).join("")
-    : "<li>Search and retrieve medical literature</li>";
+    : "<li>Search medical literature and query public CMS datasets</li>";
   return htmlResponse(
     page(
       "Authorize MCP client",
@@ -231,6 +231,7 @@ export function renderAccount(options: AccountPageOptions): Response {
           <article class="card"><span class="status ready">Ready</span><h2>PubMed &amp; PMC</h2><p>Available without personal credentials. A personal NCBI API key can be stored above for higher request limits.</p></article>
           <article class="card"><span class="status ready">Ready</span><h2>Europe PMC</h2><p>Search, abstracts, identifiers, citations, and lawful open full text where available.</p></article>
           <article class="card"><span class="status ready">Ready</span><h2>Crossref &amp; Unpaywall</h2><p>DOI metadata and lawful open-access resolution are enabled for every signed-in user.</p></article>
+          <article class="card"><span class="status ready">Ready</span><h2>Data.CMS.gov</h2><p>Discover and query bounded rows from public-use Medicare and Medicaid datasets without personal credentials.</p></article>
         </section>
         <section class="card danger-zone">
           <span class="eyebrow">Account data</span><h2>Delete hosted account data</h2>
@@ -279,7 +280,9 @@ function page(title: string, content: string, head = ""): string {
 }
 
 function scopeLabel(scope: string): string {
-  return scope === "mcp:research" ? "Search and retrieve medical literature" : scope;
+  return scope === "mcp:research"
+    ? "Search medical literature and query public CMS datasets"
+    : scope;
 }
 
 function safeAvatarUrl(value?: string): string | null {

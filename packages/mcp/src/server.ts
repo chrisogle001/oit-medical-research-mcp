@@ -1,7 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import {
+  CmsDataService,
   ResearchService,
   type AnnotationResponse,
+  type CmsDatasetQueryResponse,
+  type CmsDatasetSearchResponse,
   type CitationResponse,
   type ResearchServiceOptions,
   type SearchResponse,
@@ -11,6 +14,7 @@ import { z } from "zod";
 
 const MAX_FETCH_TEXT_CHARACTERS = 120_000;
 const MAX_MODEL_SEARCH_RESULTS = 10;
+const MAX_MODEL_CMS_ROWS = 25;
 
 const SearchInput = z.object({
   query: z
@@ -71,6 +75,62 @@ const FetchInput = z.object({
     .describe(
       "Maximum article-text characters to return when includeText is true. Defaults to the server limit."
     )
+});
+
+const CmsDatasetSearchInput = z.object({
+  query: z
+    .string()
+    .min(2)
+    .max(500)
+    .describe(
+      "Keywords describing a CMS public dataset, such as Medicare spending, hospital quality, Medicaid enrollment, or provider utilization."
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(25)
+    .optional()
+    .describe("Maximum number of matching CMS datasets to return. Defaults to 10.")
+});
+
+const CmsDatasetFilterSchema = z.object({
+  field: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .describe("Exact CMS dataset column name, obtainable from an initial query response."),
+  operator: z
+    .enum(["equals", "contains"])
+    .describe('Use "equals" for an exact value or "contains" for a substring match.'),
+  value: z.string().trim().min(1).max(500).describe("Value to match in the selected column.")
+});
+
+const CmsDatasetQueryInput = z.object({
+  datasetId: z
+    .string()
+    .uuid()
+    .describe("A CMS dataset UUID returned by cms_search_datasets."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Maximum rows to return. Defaults to 25."),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(1_000_000)
+    .optional()
+    .describe("Zero-based row offset for bounded pagination. Defaults to 0."),
+  filters: z
+    .array(CmsDatasetFilterSchema)
+    .max(5)
+    .optional()
+    .describe("Optional CMS column filters. Use exact column names returned in the columns field.")
 });
 
 const ProviderNameOutput = z.enum(["pubmed", "europe-pmc", "crossref", "unpaywall"]);
@@ -164,6 +224,40 @@ const FetchOutput = z.object({
   text: z.string().optional()
 });
 
+const CmsDatasetSummaryOutput = z.object({
+  datasetId: z.string().uuid(),
+  title: z.string(),
+  description: z.string().optional(),
+  themes: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
+  modified: z.string().optional(),
+  temporal: z.string().optional(),
+  landingPage: z.string().optional(),
+  license: z.string().optional(),
+  apiUrl: z.string(),
+  resourcesUrl: z.string().optional()
+});
+const CmsDatasetSearchOutput = z.object({
+  source: z.literal("data.cms.gov"),
+  resultCount: z.number().int().nonnegative(),
+  totalMatches: z.number().int().nonnegative(),
+  totalCatalogDatasets: z.number().int().nonnegative(),
+  results: z.array(CmsDatasetSummaryOutput)
+});
+const CmsDatasetValueOutput = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const CmsDatasetQueryOutput = z.object({
+  source: z.literal("data.cms.gov"),
+  datasetId: z.string().uuid(),
+  apiUrl: z.string(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  returned: z.number().int().nonnegative(),
+  columns: z.array(z.string()),
+  filters: z.array(CmsDatasetFilterSchema),
+  rows: z.array(z.record(z.string(), CmsDatasetValueOutput)),
+  note: z.string()
+});
+
 const CitationsInput = z.object({
   id: z
     .string()
@@ -243,9 +337,10 @@ const AnnotationsOutput = z.object({
 
 export function createMedicalResearchMcpServer(options: ResearchServiceOptions = {}): McpServer {
   const service = new ResearchService(options);
+  const cms = new CmsDataService({ ...(options.fetch ? { fetch: options.fetch } : {}) });
   const server = new McpServer({
     name: "OIT - Medical Research MCP",
-    version: "0.7.1"
+    version: "0.8.0"
   });
 
   server.registerTool(
@@ -293,6 +388,47 @@ export function createMedicalResearchMcpServer(options: ResearchServiceOptions =
     },
     async ({ id, direction, limit }) =>
       toolResult(() => service.citations(id, direction, limit), formatCitationsForModel)
+  );
+
+  server.registerTool(
+    "cms_search_datasets",
+    {
+      title: "Find CMS public datasets",
+      description:
+        "Search the official data.cms.gov public catalog for Medicare, Medicaid, provider, quality, spending, utilization, and program datasets. Returns the latest public API dataset UUID, provenance, update date, license, and CMS landing page for follow-up with cms_query_dataset. This searches public-use datasets, not patient-specific claims.",
+      inputSchema: CmsDatasetSearchInput,
+      outputSchema: CmsDatasetSearchOutput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async ({ query, limit }) =>
+      toolResult(() => cms.searchDatasets(query, limit), formatCmsDatasetSearchForModel)
+  );
+
+  server.registerTool(
+    "cms_query_dataset",
+    {
+      title: "Query a CMS public dataset",
+      description:
+        "Query a bounded page from an official data.cms.gov public-use dataset by UUID. Supports up to five exact or contains filters and returns the available column names with the rows. Dataset schemas vary, so use cms_search_datasets first and consult the returned CMS landing page or data dictionary before interpreting values.",
+      inputSchema: CmsDatasetQueryInput,
+      outputSchema: CmsDatasetQueryOutput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async ({ datasetId, limit, offset, filters }) =>
+      toolResult(
+        () => cms.queryDataset(datasetId, limit, offset, filters),
+        formatCmsDatasetQueryForModel
+      )
   );
 
   server.registerTool(
@@ -392,6 +528,29 @@ function formatSearchForModel(response: SearchResponse): string {
       ...(result.citationCount !== undefined ? { citationCount: result.citationCount } : {})
     })),
     providerDiagnostics: response.providerDiagnostics
+  });
+}
+
+function formatCmsDatasetSearchForModel(response: CmsDatasetSearchResponse): string {
+  return JSON.stringify(response);
+}
+
+function formatCmsDatasetQueryForModel(response: CmsDatasetQueryResponse): string {
+  const rows = response.rows.slice(0, MAX_MODEL_CMS_ROWS);
+  return JSON.stringify({
+    responseType: "cmsDatasetQuery",
+    source: response.source,
+    datasetId: response.datasetId,
+    apiUrl: response.apiUrl,
+    offset: response.offset,
+    limit: response.limit,
+    returned: response.returned,
+    modelSummaryRows: rows.length,
+    modelSummaryTruncated: rows.length < response.rows.length,
+    columns: response.columns,
+    filters: response.filters,
+    rows,
+    note: response.note
   });
 }
 

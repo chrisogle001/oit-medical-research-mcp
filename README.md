@@ -4,21 +4,26 @@
 [![npm](https://img.shields.io/npm/v/oit-medical-research-mcp.svg)](https://www.npmjs.com/package/oit-medical-research-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A portable, read-only MCP server for searching medical literature and retrieving normalized metadata, abstracts, and lawful open full text. The same shared TypeScript research engine runs locally over stdio and remotely on Cloudflare Workers over Streamable HTTP.
+A portable, read-only MCP server for searching medical literature, retrieving normalized metadata and lawful open full text, and querying public CMS datasets. The same shared TypeScript research engine runs locally over stdio and remotely on Cloudflare Workers over Streamable HTTP.
 
-## Initial sources
+## Sources
 
 - PubMed and PubMed Central through NCBI E-utilities
 - Europe PMC
 - Crossref
 - Unpaywall for lawful open-access resolution
+- Data.CMS.gov for public Medicare, Medicaid, provider, quality, utilization, and program datasets
 
-The public MCP interface provides four interoperable, read-only tools:
+The public MCP interface provides six interoperable, read-only tools:
 
 - `search({ query, limit?, fromYear?, toYear?, journals?, fullTextOnly? })` returns up to the requested number of deduplicated results (subject to the server cap). Each result includes its stable ID, title, URL, identifiers, reconciled authors, contributing providers, explicit full-text status, publication types, preprint and retraction flags, and available journal, date, open-access, and citation metadata.
 - `fetch({ id, includeText?, textLimit? })` returns metadata-first structured output with normalized identifiers, reconciled authors, DOI-follow-up enrichment, provider diagnostics, license, access links, explicit full-text retrieval status, publication types, and preprint and retraction flags. Text remains included by default; set `includeText: false` for a compact metadata-only response or use `textLimit` to request a bounded excerpt.
 - `citations({ id, direction, limit? })` explores Europe PMC's open citation network. Use `direction: "references"` for papers cited by the article or `direction: "citedBy"` for papers that cite it. Results use the same stable, fetchable IDs as search.
 - `annotations({ id, limit?, types?, sections?, providers? })` retrieves bounded, text-mined biomedical mentions for one article through Europe PMC. Results include the mentioned text, surrounding context, article section, annotation provider, and links to recognized database entities when available.
+- `cms_search_datasets({ query, limit? })` searches the official Data.CMS.gov public catalog and returns the latest API-ready dataset UUID, update information, license, and CMS landing page.
+- `cms_query_dataset({ datasetId, limit?, offset?, filters? })` returns a bounded page of public CMS dataset rows. Filters support exact and contains matching against column names returned by an initial query.
+
+CMS tools are kept separate from literature search because public-use Medicare and Medicaid tables are not journal articles or patient-specific claims. Dataset fields, suppression rules, and interpretation vary; follow the returned CMS landing page and data dictionary before drawing conclusions.
 
 Search filters are optional and work the same way locally and on Cloudflare. `journals` accepts up to five journal titles or common abbreviations. `fullTextOnly: true` restricts results to articles whose full text can be retrieved lawfully from PMC or Europe PMC; it does not bypass publisher access controls.
 
@@ -89,7 +94,7 @@ For a custom domain, set `ALLOWED_HOSTNAMES` and `ALLOWED_ORIGIN_HOSTNAMES` as c
 
 Credentials are read only from the local process environment, Cloudflare secrets, or the hosted account page. They are never accepted as MCP tool arguments. A hosted user's optional NCBI key is encrypted with AES-GCM before it reaches KV and is never displayed again. The server does not log research queries, article identifiers, article text, account names, or credentials. Hosted usage counters contain only a keyed account pseudonym, tool category, outcome, duration, and status.
 
-See [Architecture](docs/ARCHITECTURE.md), [Security](docs/SECURITY.md), [Threat model](docs/THREAT_MODEL.md), [Cloudflare deployment](docs/CLOUDFLARE.md), and [Releasing](docs/RELEASING.md).
+See [Architecture](docs/ARCHITECTURE.md), [Provider API evaluation](docs/PROVIDER_EVALUATION.md), [Security](docs/SECURITY.md), [Threat model](docs/THREAT_MODEL.md), [Cloudflare deployment](docs/CLOUDFLARE.md), and [Releasing](docs/RELEASING.md).
 
 ## License
 
@@ -113,6 +118,8 @@ This checks targeted searches and a stable cross-provider article through PubMed
 
 Run `npm run smoke:live` to verify the shared engine against live sources with journal, publication-year, and repository-full-text filters, article retrieval, publication-status labeling, a known retracted-publication fixture, a stable Europe PMC citation-network fixture, and filtered biomedical annotations.
 
+Run `npm run smoke:cms` to verify public CMS catalog discovery and a one-row bounded dataset query without credentials.
+
 ## Status
 
-The shared foundation, structured literature search, article retrieval, author reconciliation, discovered-DOI enrichment through Crossref and Unpaywall, explicit full-text status, provider contribution diagnostics, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, no-email pseudonymous identity, optional GitHub account management, signed-session reuse, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.
+The shared foundation, structured literature search, article retrieval, author reconciliation, discovered-DOI enrichment through Crossref and Unpaywall, explicit full-text status, provider contribution diagnostics, publication-type and safety-status labeling, open citation-network exploration, biomedical article annotations, bounded CMS public-dataset discovery and querying, local stdio transport, Cloudflare Streamable HTTP transport, OAuth 2.1 authorization, no-email pseudonymous identity, optional GitHub account management, signed-session reuse, consent flow, per-account rate limits, bounded upstream concurrency, privacy-safe usage counters, encrypted personal NCBI settings, grant revocation, and self-service account-data deletion are implemented.

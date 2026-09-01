@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 - 2026-09-01
+
+- Added `cms_search_datasets` for discovery of official Data.CMS.gov public datasets.
+- Added `cms_query_dataset` for bounded, filtered queries against public Medicare and Medicaid data without credentials.
+- Kept CMS tabular data separate from peer-reviewed literature results and added source-interpretation guidance.
+
 ## 0.7.1 - 2026-08-30
 
 - Replaced the homepage's direct MCP transport link with clear connection instructions.

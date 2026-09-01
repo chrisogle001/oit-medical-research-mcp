@@ -1,7 +1,7 @@
 {
   "name": "oit-medical-research-mcp",
-  "version": "0.7.1",
-  "description": "Portable medical literature research MCP server for local and Cloudflare deployments.",
+  "version": "0.8.0",
+  "description": "Medical literature and public CMS data MCP server for local and Cloudflare deployments.",
   "type": "module",
   "license": "MIT",
   "author": "Ogle IT Services <research-api@ogleits.com>",
@@ -17,6 +17,9 @@
     "mcp",
     "model-context-protocol",
     "medical-research",
+    "cms",
+    "medicare",
+    "medicaid",
     "pubmed",
     "europe-pmc",
     "cloudflare-workers"
@@ -46,6 +49,7 @@
     "smoke:live": "tsx scripts/smoke-live.ts",
     "smoke:failures": "tsx scripts/smoke-failure-modes.ts",
     "smoke:providers": "tsx scripts/smoke-providers.ts",
+    "smoke:cms": "tsx scripts/smoke-cms.ts",
     "smoke:cloudflare": "tsx scripts/smoke-cloudflare.ts",
     "smoke:oauth": "tsx scripts/smoke-oauth.ts",
     "smoke:oauth-concurrency": "tsx scripts/smoke-oauth-concurrency.ts",
